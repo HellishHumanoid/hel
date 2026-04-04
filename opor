@@ -1,1 +1,698 @@
-aaa
+-- Auto re-execute on server hop: writes a one-line loader into the executor's
+-- autoexec folder. On every new server, the loader fetches and runs the latest
+-- version of the script from the URL (same method Infinite Yield uses).
+pcall(function()
+    writefile(
+        "autoexec/AutoChest.lua",
+        "loadstring(game:HttpGet('https://raw.githubusercontent.com/HellishHumanoid/hel/refs/heads/main/opor'))()"
+    )
+end)
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Players     = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ── Config persistence ────────────────────────────────────────────────────────
+local CONFIG_PATH = "AutoChest_Config.json"
+
+-- Loads saved config from disk; returns empty table if none exists yet
+local function loadConfig()
+    local ok, raw = pcall(readfile, CONFIG_PATH)
+    if not ok or not raw or raw == "" then return {} end
+    local ok2, data = pcall(HttpService.JSONDecode, HttpService, raw)
+    return ok2 and data or {}
+end
+
+-- Converts a {[key]=true} set back to a plain array for dropdown CurrentOption
+local function keysToArray(t)
+    local arr = {}
+    if t then for k in pairs(t) do table.insert(arr, k) end end
+    return arr
+end
+
+local cfg = loadConfig()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Chest Farmer",
+    LoadingTitle = "Chest Farmer",
+    LoadingSubtitle = "Auto Chest Script",
+    Theme = "Default",
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings = true,
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false,
+})
+
+local Tab = Window:CreateTab("Chests", 4483362458)
+
+-- State
+local selectedTypes = {}
+local autoRunning = false
+
+-- Name patterns for each chest type (case-insensitive, locked chests are always skipped)
+local TYPE_PATTERNS = {
+    ["Emerald Chest"] = "emerald",
+    ["Golden Chest"]  = "golden",
+    ["Silver Chest"]  = "silver",
+    ["Wooden Chest"]  = "wooden",
+}
+
+-- Priority order
+local PRIORITY = {"Emerald Chest", "Golden Chest", "Silver Chest", "Wooden Chest"}
+
+-- Builds an ordered chest list respecting priority (Emerald > Golden > Silver > Wooden)
+-- Skips any chest whose name contains "locked"
+local function getChests()
+    local list = {}
+    local seen = {}
+
+    for _, typeName in ipairs(PRIORITY) do
+        if selectedTypes[typeName] then
+            local pattern = TYPE_PATTERNS[typeName]
+            for _, chest in ipairs(workspace.Chests:GetChildren()) do
+                local name = chest.Name:lower()
+                if name:find(pattern) and not name:find("locked") and not seen[chest] then
+                    table.insert(list, chest)
+                    seen[chest] = true
+                end
+            end
+        end
+    end
+
+    return list
+end
+
+local function teleportToChest(chest)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    -- GetPivot() works even when parts haven't streamed in yet,
+    -- teleporting there causes Roblox to stream in the nearby content
+    local ok, pivot = pcall(function() return chest:GetPivot() end)
+    if ok and pivot then
+        hrp.CFrame = pivot + Vector3.new(0, 3, 0)
+    else
+        local main = chest:FindFirstChild("Main")
+        if not main then return end
+        hrp.CFrame = main.CFrame + Vector3.new(0, 3, 0)
+    end
+end
+
+local function fireChest(chest)
+    -- WaitForChild blocks until the part streams in (up to 10 seconds)
+    local main = chest:WaitForChild("Main", 10)
+    if not main then return end
+    local cd = main:WaitForChild("ClickDetector", 10)
+    if not cd then return end
+    fireclickdetector(cd)
+end
+
+local function autoChestLoop()
+    while autoRunning do
+        local visited = {}
+        local foundNew = true
+
+        -- Inner loop: keep fetching the chest list after each teleport so
+        -- newly streamed-in chests are picked up as we move around the map.
+        while autoRunning and foundNew do
+            foundNew = false
+            local chests = getChests()
+
+            for _, chest in ipairs(chests) do
+                if not visited[chest] then
+                    foundNew = true
+                    visited[chest] = true
+                    pcall(teleportToChest, chest)
+                    task.wait(0.2)
+                    pcall(fireChest, chest)
+                    pcall(fireChest, chest)
+                    pcall(fireChest, chest)
+                    break -- re-fetch list so newly loaded chests are included
+                end
+            end
+        end
+
+        -- All discoverable chests done; pause before starting a new cycle
+        if autoRunning then
+            task.wait(1)
+        end
+    end
+end
+
+-- ── Auto-Fruit ────────────────────────────────────────────────────────────────
+
+local fruitRunning = false
+
+-- Fruits are direct workspace children identified by always containing
+-- both "DestroyScript" and "InstaWeld", regardless of their random name.
+local function getAllFruits()
+    local fruits = {}
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:FindFirstChild("DestroyScript") and obj:FindFirstChild("InstaWeld") then
+            table.insert(fruits, obj)
+        end
+    end
+    return fruits
+end
+
+local function setFrozen(frozen)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.Anchored = frozen end
+end
+
+local function autoFruitLoop()
+    local visited = {}
+
+    while fruitRunning do
+        local fruits = getAllFruits()
+        local acted = false
+
+        for _, fruit in ipairs(fruits) do
+            if not fruitRunning then break end
+            if not visited[fruit] then
+                visited[fruit] = true
+                acted = true
+
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp then break end
+
+                -- Teleport to model first so Handle can stream in
+                setFrozen(true)
+                local ok, pivot = pcall(function() return fruit:GetPivot() end)
+                if ok and pivot then
+                    hrp.CFrame = pivot + Vector3.new(0, 3, 0)
+                end
+
+                -- Wait for Handle + ClickDetector to stream in
+                local handle = fruit:WaitForChild("Handle", 10)
+                local cd = handle and handle:WaitForChild("ClickDetector", 5)
+
+                -- Loop: freeze → teleport → unfreeze → fire, until fruit leaves workspace
+                if cd then
+                    while fruitRunning and fruit.Parent ~= nil do
+                        setFrozen(true)
+                        local pok, pos = pcall(function() return fruit:GetPivot() end)
+                        if pok and pos then
+                            hrp.CFrame = pos + Vector3.new(0, 3, 0)
+                        end
+                        setFrozen(false)
+                        pcall(fireclickdetector, cd)
+                        task.wait()
+                    end
+                else
+                    setFrozen(false)
+                end
+
+                break -- re-check immediately for more / newly spawned fruits
+            end
+        end
+
+        if not acted then
+            task.wait(0.1) -- no new fruit yet, keep polling
+        end
+    end
+
+    setFrozen(false)
+end
+
+-- ── UI — Toggle first, Dropdown below it ──────────────────────────────────────
+Tab:CreateToggle({
+    Name = "Auto-Chest",
+    CurrentValue = false,
+    Flag = "AutoChest",
+    Callback = function(value)
+        autoRunning = value
+        if value then
+            task.spawn(autoChestLoop)
+        end
+    end,
+})
+
+-- ── Autofarm ──────────────────────────────────────────────────────────────────
+
+local RunService        = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local autofarmRunning = false
+local selectedMobs    = {}
+local currentFarmMob  = nil
+local farmAtSpawn     = false
+
+local noclipConn = nil
+local lockConn   = nil
+
+local SPAWN_POINT = CFrame.new(-1117, 36, 2427)
+
+-- Noclip: disable collision on every character part each physics step
+local function enableNoclip()
+    noclipConn = RunService.Stepped:Connect(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function disableNoclip()
+    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+        end
+    end
+end
+
+-- Position lock: runs every heartbeat frame — no anchoring so attacks still work
+local function startLock()
+    lockConn = RunService.Heartbeat:Connect(function()
+        local char = LocalPlayer.Character
+        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+        local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+        if not hrp then return end
+
+        if currentFarmMob and currentFarmMob.Parent then
+            local mobHRP = currentFarmMob:FindFirstChild("HumanoidRootPart")
+            if mobHRP then
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Physics) end
+                hrp.CFrame = CFrame.new(mobHRP.Position + Vector3.new(0, -7, 0))
+                           * CFrame.Angles(math.pi / 2, 0, 0)
+                hrp.AssemblyLinearVelocity  = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
+        elseif farmAtSpawn then
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Physics) end
+            hrp.CFrame = SPAWN_POINT
+            hrp.AssemblyLinearVelocity  = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
+end
+
+local function stopLock()
+    if lockConn then lockConn:Disconnect(); lockConn = nil end
+end
+
+-- Mob sources: maps dropdown label → function returning live mob list
+local MOB_SOURCES = {
+    ["Marine Soldier"] = function()
+        local folder = workspace:FindFirstChild("Players")
+        if not folder then return {} end
+        local list = {}
+        for _, npc in ipairs(folder:GetChildren()) do
+            if npc.Name == "MarineSoldier" then
+                table.insert(list, npc)
+            end
+        end
+        return list
+    end,
+}
+
+local function getMobs()
+    local list = {}
+    for mobType, getter in pairs(MOB_SOURCES) do
+        if selectedMobs[mobType] then
+            for _, mob in ipairs(getter()) do
+                table.insert(list, mob)
+            end
+        end
+    end
+    return list
+end
+
+local function isMobAlive(mob)
+    if not mob or mob.Parent == nil then return false end
+    local hum = mob:FindFirstChildWhichIsA("Humanoid")
+    return not hum or hum.Health > 0
+end
+
+local function getM1Remote()
+    local char    = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local tool = (char and char:FindFirstChild("Combat"))
+              or (backpack and backpack:FindFirstChild("Combat"))
+    if not tool then return nil end
+    local handler = tool:FindFirstChild("CombatHandler")
+    if not handler then return nil end
+    return handler:FindFirstChild("M1")
+end
+
+local function getMoveHandlerQuake()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local char     = LocalPlayer.Character
+    return (backpack and backpack:FindFirstChild("MoveHandler_Quake"))
+        or (char     and char:FindFirstChild("MoveHandler_Quake"))
+end
+
+local function fireAllAttacks()
+    local m1 = getM1Remote()
+    if m1 then
+        m1:FireServer("Combo", nil, { HoldingRMB = false })
+    end
+
+    local skillRemote = ReplicatedStorage:FindFirstChild("ActivateSkillClient")
+    local moveHandler = getMoveHandlerQuake()
+    if skillRemote and moveHandler then
+        skillRemote:FireServer("DF_Quake_SevereEarthquake",  "Down", moveHandler)
+        skillRemote:FireServer("DF_Quake_Tremor",             "Down", moveHandler)
+        skillRemote:FireServer("DF_Quake_HypocenterAttack",  "Down", moveHandler)
+    end
+end
+
+local function autofarmLoop()
+    enableNoclip()
+    startLock()
+    farmAtSpawn = true
+
+    while autofarmRunning do
+        local mobs   = getMobs()
+        local fought = false
+
+        for _, mob in ipairs(mobs) do
+            if not autofarmRunning then break end
+            if isMobAlive(mob) then
+                fought       = true
+                farmAtSpawn  = false
+                currentFarmMob = mob
+
+                -- Heartbeat handles position; just fire attacks until mob dies
+                while autofarmRunning and isMobAlive(mob) do
+                    fireAllAttacks()
+                    task.wait(0.2)
+                end
+
+                currentFarmMob = nil
+                break
+            end
+        end
+
+        if not fought then
+            -- No alive mobs; park at spawn and wait for next wave
+            currentFarmMob = nil
+            farmAtSpawn    = true
+            task.wait(0.5)
+        end
+    end
+
+    -- Cleanup
+    currentFarmMob = nil
+    farmAtSpawn    = false
+    stopLock()
+    disableNoclip()
+
+    local char = LocalPlayer.Character
+    local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+end
+
+-- ── Auto-Player ───────────────────────────────────────────────────────────────
+
+local playerFarmRunning   = false
+local selectedPlayers     = {}
+local currentPlayerTarget = nil
+
+local playerNoclipConn = nil
+local playerLockConn   = nil
+
+local function getTargetPlayers()
+    local list = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and (next(selectedPlayers) == nil or selectedPlayers[player.Name]) then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChildWhichIsA("Humanoid")
+                if hum and hum.Health > 0 then
+                    table.insert(list, char)
+                end
+            end
+        end
+    end
+    return list
+end
+
+local function isPlayerAlive(char)
+    if not char or char.Parent == nil then return false end
+    local hum = char:FindFirstChildWhichIsA("Humanoid")
+    return hum ~= nil and hum.Health > 0
+end
+
+local function enablePlayerNoclip()
+    playerNoclipConn = RunService.Stepped:Connect(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+    end)
+end
+
+local function disablePlayerNoclip()
+    if playerNoclipConn then playerNoclipConn:Disconnect(); playerNoclipConn = nil end
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then part.CanCollide = true end
+    end
+end
+
+local function startPlayerLock()
+    playerLockConn = RunService.Heartbeat:Connect(function()
+        if not currentPlayerTarget or not currentPlayerTarget.Parent then return end
+        local char      = LocalPlayer.Character
+        local hrp       = char and char:FindFirstChild("HumanoidRootPart")
+        local hum       = char and char:FindFirstChildWhichIsA("Humanoid")
+        local targetHRP = currentPlayerTarget:FindFirstChild("HumanoidRootPart")
+        if hrp and targetHRP then
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Physics) end
+            hrp.CFrame = CFrame.new(targetHRP.Position + Vector3.new(0, -7, 0))
+                       * CFrame.Angles(math.pi / 2, 0, 0)
+            hrp.AssemblyLinearVelocity  = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+    end)
+end
+
+local function stopPlayerLock()
+    if playerLockConn then playerLockConn:Disconnect(); playerLockConn = nil end
+end
+
+local function autoPlayerLoop()
+    enablePlayerNoclip()
+    startPlayerLock()
+
+    while playerFarmRunning do
+        local targets = getTargetPlayers()
+        local fought  = false
+
+        for _, char in ipairs(targets) do
+            if not playerFarmRunning then break end
+            if isPlayerAlive(char) then
+                fought              = true
+                currentPlayerTarget = char
+
+                while playerFarmRunning and isPlayerAlive(char) do
+                    fireAllAttacks()
+                    task.wait(0.2)
+                end
+
+                currentPlayerTarget = nil
+                break
+            end
+        end
+
+        if not fought then
+            currentPlayerTarget = nil
+            task.wait(0.5)
+        end
+    end
+
+    currentPlayerTarget = nil
+    stopPlayerLock()
+    disablePlayerNoclip()
+
+    local char = LocalPlayer.Character
+    local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+end
+
+-- Saves current toggle/dropdown state to disk so it survives server hops
+local function saveConfig()
+    pcall(function()
+        writefile(CONFIG_PATH, HttpService:JSONEncode({
+            autoRunning       = autoRunning,
+            fruitRunning      = fruitRunning,
+            autofarmRunning   = autofarmRunning,
+            playerFarmRunning = playerFarmRunning,
+            selectedTypes     = selectedTypes,
+            selectedMobs      = selectedMobs,
+            selectedPlayers   = selectedPlayers,
+        }))
+    end)
+end
+
+-- ── Spawn handler ─────────────────────────────────────────────────────────────
+
+local function equipCombat()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return end
+
+    local combat = backpack:WaitForChild("Combat", 5)
+    if not combat then return end
+
+    -- Equip the tool locally
+    local char = LocalPlayer.Character
+    local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then pcall(function() hum:EquipTool(combat) end) end
+
+    -- Fire EquipWeapon remote to register the equip server-side
+    local handler     = combat:WaitForChild("CombatHandler", 5)
+    local equipRemote = handler and handler:WaitForChild("EquipWeapon", 5)
+    if equipRemote then
+        equipRemote:FireServer("TwoSwordStyle")
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1) -- wait for Backpack to be populated after spawn
+    if autofarmRunning then
+        equipCombat()
+    end
+end)
+
+-- ── UI ────────────────────────────────────────────────────────────────────────
+
+Tab:CreateToggle({
+    Name = "Auto-Fruit",
+    CurrentValue = cfg.fruitRunning or false,
+    Flag = "AutoFruit",
+    Callback = function(value)
+        fruitRunning = value
+        saveConfig()
+        if value then
+            task.spawn(autoFruitLoop)
+        else
+            setFrozen(false)
+        end
+    end,
+})
+
+Tab:CreateDropdown({
+    Name = "Chest Types",
+    Options = {"Emerald Chest", "Golden Chest", "Silver Chest", "Wooden Chest"},
+    CurrentOption = keysToArray(cfg.selectedTypes),
+    MultipleOptions = true,
+    Flag = "ChestTypes",
+    Callback = function(selected)
+        selectedTypes = {}
+        for _, v in ipairs(selected) do
+            selectedTypes[v] = true
+        end
+        saveConfig()
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Autofarm",
+    CurrentValue = cfg.autofarmRunning or false,
+    Flag = "Autofarm",
+    Callback = function(value)
+        autofarmRunning = value
+        saveConfig()
+        if value then
+            task.spawn(autofarmLoop)
+        end
+    end,
+})
+
+Tab:CreateDropdown({
+    Name = "Mob Types",
+    Options = {"Marine Soldier"},
+    CurrentOption = keysToArray(cfg.selectedMobs),
+    MultipleOptions = true,
+    Flag = "MobTypes",
+    Callback = function(selected)
+        selectedMobs = {}
+        for _, v in ipairs(selected) do
+            selectedMobs[v] = true
+        end
+        saveConfig()
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto-Player",
+    CurrentValue = cfg.playerFarmRunning or false,
+    Flag = "AutoPlayer",
+    Callback = function(value)
+        playerFarmRunning = value
+        saveConfig()
+        if value then
+            task.spawn(autoPlayerLoop)
+        end
+    end,
+})
+
+local PlayerDropdown = Tab:CreateDropdown({
+    Name = "Target Players",
+    Options = (function()
+        local names = {"All Players"}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                table.insert(names, p.Name)
+            end
+        end
+        return names
+    end)(),
+    CurrentOption = keysToArray(cfg.selectedPlayers),
+    MultipleOptions = true,
+    Flag = "TargetPlayers",
+    Callback = function(selected)
+        selectedPlayers = {}
+        for _, v in ipairs(selected) do
+            if v == "All Players" then
+                selectedPlayers = {}
+                saveConfig()
+                return
+            end
+            selectedPlayers[v] = true
+        end
+        saveConfig()
+    end,
+})
+
+Tab:CreateButton({
+    Name = "Refresh Players",
+    Callback = function()
+        local names = {"All Players"}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                table.insert(names, p.Name)
+            end
+        end
+        PlayerDropdown:Refresh(names, {})
+        selectedPlayers = {}
+    end,
+})
+
+-- ── Restore saved state ───────────────────────────────────────────────────────
+-- Apply saved dropdown selections and restart any loops that were active.
+-- This runs after all UI is built since Rayfield may not fire callbacks
+-- for CurrentValue/CurrentOption on creation.
+if cfg.selectedTypes   then selectedTypes   = cfg.selectedTypes   end
+if cfg.selectedMobs    then selectedMobs    = cfg.selectedMobs    end
+if cfg.selectedPlayers then selectedPlayers = cfg.selectedPlayers end
+
+if cfg.autoRunning       then autoRunning       = true; task.spawn(autoChestLoop)  end
+if cfg.fruitRunning      then fruitRunning      = true; task.spawn(autoFruitLoop)  end
+if cfg.autofarmRunning   then autofarmRunning   = true; task.spawn(autofarmLoop)   end
+if cfg.playerFarmRunning then playerFarmRunning = true; task.spawn(autoPlayerLoop) end
