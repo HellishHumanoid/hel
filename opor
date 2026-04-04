@@ -559,7 +559,7 @@ local function equipCombat()
     local handler     = combat:WaitForChild("CombatHandler", 5)
     local equipRemote = handler and handler:WaitForChild("EquipWeapon", 5)
     if equipRemote then
-        equipRemote:FireServer("TwoSwordStyle")
+        equipRemote:FireServer("OneSwordStyle")
     end
 end
 
