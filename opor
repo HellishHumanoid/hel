@@ -367,6 +367,9 @@ local function fireAllAttacks()
     if skillRemote and moveHandler then
         skillRemote:FireServer("DF_Quake_SevereEarthquake", "Down", moveHandler)
         skillRemote:FireServer("DF_Quake_Tremor",           "Up",   moveHandler)
+        skillRemote:FireServer("DF_Quake_HelmetSplitter",   "Down", moveHandler)
+        skillRemote:FireServer("DF_Quake_HeavenEarth",      "Up",   moveHandler)
+        skillRemote:FireServer("DF_Quake_SeaQuake",         "Down", moveHandler)
     end
 end
 
