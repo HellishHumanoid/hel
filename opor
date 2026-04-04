@@ -544,27 +544,32 @@ end
 -- ── Spawn handler ─────────────────────────────────────────────────────────────
 
 local function equipCombat()
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    -- Wait for backpack and Combat tool to be ready
+    local backpack = LocalPlayer:WaitForChild("Backpack", 10)
     if not backpack then return end
 
-    local combat = backpack:WaitForChild("Combat", 5)
+    local combat = backpack:WaitForChild("Combat", 10)
     if not combat then return end
 
-    -- Equip the tool locally
+    -- Equip the tool so the server recognises it as held
     local char = LocalPlayer.Character
     local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then pcall(function() hum:EquipTool(combat) end) end
+    if hum then
+        hum:EquipTool(combat)
+        task.wait(0.5) -- let the equip register before firing the remote
+    end
 
-    -- Fire EquipWeapon remote to register the equip server-side
-    local handler     = combat:WaitForChild("CombatHandler", 5)
-    local equipRemote = handler and handler:WaitForChild("EquipWeapon", 5)
+    -- Fire EquipWeapon to set One Sword Style server-side
+    local handler     = combat:WaitForChild("CombatHandler", 10)
+    local equipRemote = handler and handler:WaitForChild("EquipWeapon", 10)
     if equipRemote then
         equipRemote:FireServer("OneSwordStyle")
     end
 end
 
+-- Equip on every spawn / death / reset while Autofarm is on
 LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1) -- wait for Backpack to be populated after spawn
+    task.wait(2) -- give the server time to populate the Backpack
     if autofarmRunning then
         equipCombat()
     end
@@ -611,6 +616,7 @@ Tab:CreateToggle({
         saveConfig()
         if value then
             task.spawn(autofarmLoop)
+            task.spawn(equipCombat)
         end
     end,
 })
@@ -700,10 +706,5 @@ if cfg.playerFarmRunning then playerFarmRunning = true; task.spawn(autoPlayerLoo
 if cfg.autofarmRunning then
     autofarmRunning = true
     task.spawn(autofarmLoop)
-    -- Character already exists on server hop so CharacterAdded won't fire;
-    -- equip Combat immediately instead.
-    task.spawn(function()
-        task.wait(1)
-        equipCombat()
-    end)
+    task.spawn(equipCombat) -- character already exists on server hop
 end
