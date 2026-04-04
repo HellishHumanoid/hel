@@ -349,11 +349,11 @@ local function getM1Remote()
     return handler:FindFirstChild("M1")
 end
 
-local function getMoveHandlerOperation()
+local function getMoveHandlerQuake()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     local char     = LocalPlayer.Character
-    return (backpack and backpack:FindFirstChild("MoveHandler_Operation"))
-        or (char     and char:FindFirstChild("MoveHandler_Operation"))
+    return (backpack and backpack:FindFirstChild("MoveHandler_Quake"))
+        or (char     and char:FindFirstChild("MoveHandler_Quake"))
 end
 
 local function fireAllAttacks()
@@ -363,10 +363,10 @@ local function fireAllAttacks()
     end
 
     local skillRemote = ReplicatedStorage:FindFirstChild("ActivateSkillClient")
-    local moveHandler = getMoveHandlerOperation()
+    local moveHandler = getMoveHandlerQuake()
     if skillRemote and moveHandler then
-        skillRemote:FireServer("DF_Operation_InjectionShot", "Down", moveHandler)
-        skillRemote:FireServer("DF_Operation_RadioKnife",    "Down", moveHandler)
+        skillRemote:FireServer("DF_Quake_SevereEarthquake", "Down", moveHandler)
+        skillRemote:FireServer("DF_Quake_Tremor",           "Up",   moveHandler)
     end
 end
 
