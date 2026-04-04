@@ -1,12 +1,14 @@
--- Auto re-execute on server hop: writes a one-line loader into the executor's
--- autoexec folder. On every new server, the loader fetches and runs the latest
--- version of the script from the URL (same method Infinite Yield uses).
-pcall(function()
-    writefile(
-        "autoexec/AutoChest.lua",
-        "loadstring(game:HttpGet('https://raw.githubusercontent.com/HellishHumanoid/hel/refs/heads/main/opor'))()"
-    )
-end)
+-- Auto re-execute on server hop using queue_on_teleport, which fires after
+-- TeleportService teleports (server hops). The autoexec folder only runs on
+-- executor inject, not on teleports — queue_on_teleport is the correct fix.
+local SCRIPT_URL  = "https://raw.githubusercontent.com/HellishHumanoid/hel/refs/heads/main/opor"
+local LOADER_CODE = "loadstring(game:HttpGet('" .. SCRIPT_URL .. "'))()"
+
+if queue_on_teleport then
+    queue_on_teleport(LOADER_CODE)
+elseif syn and syn.queue_on_teleport then
+    syn.queue_on_teleport(LOADER_CODE)
+end
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
@@ -694,5 +696,15 @@ if cfg.selectedPlayers then selectedPlayers = cfg.selectedPlayers end
 
 if cfg.autoRunning       then autoRunning       = true; task.spawn(autoChestLoop)  end
 if cfg.fruitRunning      then fruitRunning      = true; task.spawn(autoFruitLoop)  end
-if cfg.autofarmRunning   then autofarmRunning   = true; task.spawn(autofarmLoop)   end
 if cfg.playerFarmRunning then playerFarmRunning = true; task.spawn(autoPlayerLoop) end
+
+if cfg.autofarmRunning then
+    autofarmRunning = true
+    task.spawn(autofarmLoop)
+    -- Character already exists on server hop so CharacterAdded won't fire;
+    -- equip Combat immediately instead.
+    task.spawn(function()
+        task.wait(1)
+        equipCombat()
+    end)
+end
