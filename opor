@@ -375,6 +375,17 @@ local function autofarmLoop()
     startLock()
     farmAtSpawn = true
 
+    -- Continuously keep Combat equipped while Autofarm is on
+    task.spawn(function()
+        while autofarmRunning do
+            local char = LocalPlayer.Character
+            if char and not char:FindFirstChild("Combat") then
+                equipCombat()
+            end
+            task.wait(1)
+        end
+    end)
+
     while autofarmRunning do
         local mobs   = getMobs()
         local fought = false
