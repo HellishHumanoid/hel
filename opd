@@ -8,6 +8,10 @@ local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 
 local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do
+    task.wait()
+    LocalPlayer = Players.LocalPlayer
+end
 
 local AutoChestEnabled = false
 local AutoPackageEnabled = false
@@ -59,12 +63,12 @@ end
 local function enableNoclip()
     if NoclipConnection then return end
     NoclipConnection = RunService.Stepped:Connect(function()
+        if not LocalPlayer then return end
         local char = LocalPlayer.Character
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
-                    part.CanCollide = false
-                end
+        if not char then return end
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
             end
         end
     end)
