@@ -297,7 +297,7 @@ local function runAutoPackage()
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.5, check) then break end
+                        if not interruptibleWait(1, check) then break end
                     end
                 end
                 if not anyNPC then break end
@@ -376,11 +376,16 @@ end
 
 local function deliverPackageOnce()
     local check = function() return AutoPackageSHEnabled end
-    fireRetumPackage()
 
-    local appearTimeout = tick() + 5
-    while AutoPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
-        task.wait(0.1)
+    -- Request the package and wait for it to appear; retry a few times if it doesn't show up
+    local attempts = 0
+    while AutoPackageSHEnabled and not hasPackage() and attempts < 5 do
+        fireRetumPackage()
+        local appearTimeout = tick() + 5
+        while AutoPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
+            task.wait(0.2)
+        end
+        attempts = attempts + 1
     end
     if not AutoPackageSHEnabled then return end
 
@@ -399,7 +404,7 @@ local function deliverPackageOnce()
                         hrp.CFrame = CFrame.new(frontPos, root.Position)
                         hrp.AssemblyLinearVelocity = Vector3.zero
                     end
-                    if not interruptibleWait(0.5, check) then break end
+                    if not interruptibleWait(1, check) then break end
                 end
             end
             if not anyNPC then break end
@@ -409,16 +414,42 @@ end
 
 local function runAutoPackageSH(isPostHop)
     if not AutoPackageSHEnabled then return end
+    local check = function() return AutoPackageSHEnabled end
 
     if isPostHop then
+        -- Wait for the game itself to finish loading
         if not game:IsLoaded() then game.Loaded:Wait() end
+        if not interruptibleWait(1, check) then return end
+
+        -- Fire the spawn remote
         pcall(function()
             local remote = game:GetService("ReplicatedStorage")
-                :WaitForChild("Connections", 10)
-                :WaitForChild("Spawn", 10)
+                :WaitForChild("Connections", 15)
+                :WaitForChild("Spawn", 15)
             remote:FireServer(2)
         end)
-        if not interruptibleWait(5, function() return AutoPackageSHEnabled end) then return end
+
+        -- Wait for the character to actually spawn with a root part and humanoid
+        local charDeadline = tick() + 20
+        while AutoPackageSHEnabled and tick() < charDeadline do
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum.Health > 0 then break end
+            end
+            task.wait(0.2)
+        end
+        if not AutoPackageSHEnabled then return end
+
+        -- Wait for workspace.Merchants to be present (world streamed in)
+        local merchDeadline = tick() + 20
+        while AutoPackageSHEnabled and not workspace:FindFirstChild("Merchants") and tick() < merchDeadline do
+            task.wait(0.2)
+        end
+        if not AutoPackageSHEnabled then return end
+
+        -- Additional 5s buffer as requested
+        if not interruptibleWait(5, check) then return end
     end
 
     deliverPackageOnce()
