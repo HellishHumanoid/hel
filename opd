@@ -1,21 +1,14 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-
-local Window = Rayfield:CreateWindow({
-    Name = "Rafso Hub",
-    LoadingTitle = "Rafso Hub",
-    LoadingSubtitle = "by Rafso",
-    Theme = "Ocean",
-    ConfigurationSaving = { Enabled = false },
-    KeySystem = false,
-})
-
-local MainTab = Window:CreateTab("Main")
+-- Rafso Hub (custom UI, Ocean theme)
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
 
 local LocalPlayer = Players.LocalPlayer
+
 local AutoChestEnabled = false
 local AutoPackageEnabled = false
 local AutoPackageSHEnabled = false
@@ -27,13 +20,9 @@ local Platform = nil
 
 -- Raw URL of this script used by queue_on_teleport to auto-resume after a server hop.
 local SCRIPT_URL = "https://raw.githubusercontent.com/HellishHumanoid/hel/refs/heads/main/opd"
-
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
 local StateFile = "RafsoHub_state.json"
 
 -- NPC paths to deliver the package to.
--- Each entry can be either a string path (resolved at runtime) or a direct Instance reference.
 local PackageNPCs = {
     "workspace.Merchants.AFK_NPC",
     "workspace.Merchants.AffinityMerchant",
@@ -59,6 +48,8 @@ local PackageNPCs = {
     "workspace.Merchants.SniperMerchant",
     "workspace.Merchants.SwordMerchant",
 }
+
+-- ==================== Helpers ====================
 
 local function getCharacter()
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -133,22 +124,17 @@ local function tweenTo(hrp, targetCFrame)
     local distance = (startCFrame.Position - targetCFrame.Position).Magnitude
     if distance < 0.05 then
         hrp.CFrame = targetCFrame
-        return
+        return true
     end
 
     local duration = distance / TweenSpeed
 
-    if humanoid then
-        humanoid.PlatformStand = true
-    end
+    if humanoid then humanoid.PlatformStand = true end
 
     local elapsed = 0
     local cancelled = false
     while elapsed < duration do
-        if not AutoChestEnabled then
-            cancelled = true
-            break
-        end
+        if not AutoChestEnabled then cancelled = true; break end
         local dt = RunService.Heartbeat:Wait()
         elapsed = elapsed + dt
         local alpha = math.min(elapsed / duration, 1)
@@ -157,17 +143,89 @@ local function tweenTo(hrp, targetCFrame)
         hrp.AssemblyAngularVelocity = Vector3.zero
     end
 
-    if not cancelled then
-        hrp.CFrame = targetCFrame
-    end
+    if not cancelled then hrp.CFrame = targetCFrame end
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
-
-    if humanoid then
-        humanoid.PlatformStand = false
-    end
+    if humanoid then humanoid.PlatformStand = false end
 
     return not cancelled
+end
+
+local function resolvePath(pathString)
+    local node = nil
+    for segment in string.gmatch(pathString, "[^%.]+") do
+        if not node then
+            if segment == "workspace" then node = workspace
+            elseif segment == "game" then node = game
+            else node = workspace:FindFirstChild(segment) end
+        else
+            node = node:FindFirstChild(segment)
+        end
+        if not node then return nil end
+    end
+    return node
+end
+
+local function resolveNPC(entry)
+    local inst = typeof(entry) == "Instance" and entry or resolvePath(entry)
+    if not inst then return nil end
+    return inst:FindFirstChild("HumanoidRootPart")
+        or inst:FindFirstChild("Pos1")
+        or (inst:IsA("Model") and inst.PrimaryPart)
+        or inst:FindFirstChildWhichIsA("BasePart")
+end
+
+local function hasPackage()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local char = LocalPlayer.Character
+    if backpack and backpack:FindFirstChild("Package") then return true end
+    if char and char:FindFirstChild("Package") then return true end
+    return false
+end
+
+local function equipPackage()
+    local char = LocalPlayer.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local tool = backpack and backpack:FindFirstChild("Package")
+    if tool and humanoid then humanoid:EquipTool(tool) end
+end
+
+local function fireRetumPackage()
+    local merchants = workspace:WaitForChild("Merchants", 5)
+    if not merchants then return end
+    local npc = merchants:WaitForChild("QuestFishMerchant", 5)
+    if not npc then return end
+    local clickable = npc:WaitForChild("Clickable", 5)
+    if not clickable then return end
+    local retum = clickable:WaitForChild("Retum", 5)
+    if not retum then return end
+    retum:FireServer("Package")
+end
+
+local function interruptibleWait(seconds, checkFn)
+    local start = tick()
+    while tick() - start < seconds do
+        if not checkFn() then return false end
+        task.wait(0.05)
+    end
+    return true
+end
+
+-- ==================== Flow Functions ====================
+
+local function runM1Spam()
+    if M1SpamActive then return end
+    M1SpamActive = true
+    while AutoPackageEnabled or AutoPackageSHEnabled do
+        local char = LocalPlayer.Character
+        local tool = char and char:FindFirstChildOfClass("Tool")
+        if tool then
+            pcall(function() tool:Activate() end)
+        end
+        task.wait(0.1)
+    end
+    M1SpamActive = false
 end
 
 local function runAutoChest()
@@ -180,15 +238,11 @@ local function runAutoChest()
 
         for _, chest in ipairs(children) do
             if not AutoChestEnabled then break end
-
             local pos1 = chest:FindFirstChild("Pos1")
             if pos1 and pos1:IsA("BasePart") then
                 local _, hrp = getCharacter()
-
                 local offset = pos1.CFrame.LookVector * 5
-                if offset.Magnitude < 0.1 then
-                    offset = Vector3.new(5, 0, 0)
-                end
+                if offset.Magnitude < 0.1 then offset = Vector3.new(5, 0, 0) end
                 local targetCFrame = CFrame.new(pos1.Position + offset, pos1.Position)
 
                 createPlatform()
@@ -217,95 +271,11 @@ local function runAutoChest()
     end
 end
 
-local function resolvePath(pathString)
-    local node = nil
-    for segment in string.gmatch(pathString, "[^%.]+") do
-        if not node then
-            if segment == "workspace" then
-                node = workspace
-            elseif segment == "game" then
-                node = game
-            else
-                node = workspace:FindFirstChild(segment)
-            end
-        else
-            node = node:FindFirstChild(segment)
-        end
-        if not node then return nil end
-    end
-    return node
-end
-
-local function resolveNPC(entry)
-    local inst = typeof(entry) == "Instance" and entry or resolvePath(entry)
-    if not inst then return nil end
-    local root = inst:FindFirstChild("HumanoidRootPart")
-        or inst:FindFirstChild("Pos1")
-        or (inst:IsA("Model") and inst.PrimaryPart)
-        or inst:FindFirstChildWhichIsA("BasePart")
-    return root
-end
-
-local function hasPackage()
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    local char = LocalPlayer.Character
-    if backpack and backpack:FindFirstChild("Package") then return true end
-    if char and char:FindFirstChild("Package") then return true end
-    return false
-end
-
-local function equipPackage()
-    local char = LocalPlayer.Character
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    local tool = backpack and backpack:FindFirstChild("Package")
-    if tool and humanoid then
-        humanoid:EquipTool(tool)
-    end
-end
-
-local function fireRetumPackage()
-    local merchants = workspace:WaitForChild("Merchants", 5)
-    if not merchants then return end
-    local npc = merchants:WaitForChild("QuestFishMerchant", 5)
-    if not npc then return end
-    local clickable = npc:WaitForChild("Clickable", 5)
-    if not clickable then return end
-    local retum = clickable:WaitForChild("Retum", 5)
-    if not retum then return end
-    retum:FireServer("Package")
-end
-
-local function interruptibleWait(seconds)
-    local start = tick()
-    while tick() - start < seconds do
-        if not AutoPackageEnabled then return false end
-        task.wait(0.05)
-    end
-    return true
-end
-
-local function runM1Spam()
-    if M1SpamActive then return end
-    M1SpamActive = true
-    while AutoPackageEnabled or AutoPackageSHEnabled do
-        local char = LocalPlayer.Character
-        local tool = char and char:FindFirstChildOfClass("Tool")
-        if tool then
-            pcall(function()
-                tool:Activate()
-            end)
-        end
-        task.wait(0.1)
-    end
-    M1SpamActive = false
-end
-
 local function runAutoPackage()
+    local check = function() return AutoPackageEnabled end
     while AutoPackageEnabled do
         fireRetumPackage()
 
-        -- Wait up to 5s for the package to spawn in the backpack
         local appearTimeout = tick() + 5
         while AutoPackageEnabled and not hasPackage() and tick() < appearTimeout do
             task.wait(0.1)
@@ -314,13 +284,10 @@ local function runAutoPackage()
 
         if hasPackage() then
             equipPackage()
-
-            -- Teleport through the NPC list until the package is delivered
             while AutoPackageEnabled and hasPackage() do
                 local anyNPC = false
                 for _, entry in ipairs(PackageNPCs) do
                     if not AutoPackageEnabled or not hasPackage() then break end
-
                     local root = resolveNPC(entry)
                     if root then
                         anyNPC = true
@@ -330,7 +297,7 @@ local function runAutoPackage()
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.5) then break end
+                        if not interruptibleWait(0.5, check) then break end
                     end
                 end
                 if not anyNPC then break end
@@ -338,26 +305,15 @@ local function runAutoPackage()
         end
 
         if not AutoPackageEnabled then break end
-
-        -- Cooldown before firing the remote again
-        if not interruptibleWait(60) then break end
+        if not interruptibleWait(60, check) then break end
     end
 end
 
-local function interruptibleWaitSH(seconds)
-    local start = tick()
-    while tick() - start < seconds do
-        if not AutoPackageSHEnabled then return false end
-        task.wait(0.05)
-    end
-    return true
-end
+-- ==================== Server Hop Flow ====================
 
 local function saveState()
     if not writefile then return end
-    local state = {
-        AutoPackageSH = AutoPackageSHEnabled,
-    }
+    local state = { AutoPackageSH = AutoPackageSHEnabled }
     pcall(function()
         writefile(StateFile, HttpService:JSONEncode(state))
     end)
@@ -397,12 +353,9 @@ local function serverHop()
         return HttpService:JSONDecode(game:HttpGet(url))
     end)
     if ok and result and result.data then
-        for _, server in ipairs(result.data) do
-            if server.playing and server.maxPlayers
-                and server.playing < server.maxPlayers
-                and server.id ~= game.JobId
-            then
-                table.insert(servers, server.id)
+        for _, s in ipairs(result.data) do
+            if s.playing and s.maxPlayers and s.playing < s.maxPlayers and s.id ~= game.JobId then
+                table.insert(servers, s.id)
             end
         end
     end
@@ -422,6 +375,7 @@ local function serverHop()
 end
 
 local function deliverPackageOnce()
+    local check = function() return AutoPackageSHEnabled end
     fireRetumPackage()
 
     local appearTimeout = tick() + 5
@@ -432,12 +386,10 @@ local function deliverPackageOnce()
 
     if hasPackage() then
         equipPackage()
-
         while AutoPackageSHEnabled and hasPackage() do
             local anyNPC = false
             for _, entry in ipairs(PackageNPCs) do
                 if not AutoPackageSHEnabled or not hasPackage() then break end
-
                 local root = resolveNPC(entry)
                 if root then
                     anyNPC = true
@@ -447,7 +399,7 @@ local function deliverPackageOnce()
                         hrp.CFrame = CFrame.new(frontPos, root.Position)
                         hrp.AssemblyLinearVelocity = Vector3.zero
                     end
-                    if not interruptibleWaitSH(0.5) then break end
+                    if not interruptibleWait(0.5, check) then break end
                 end
             end
             if not anyNPC then break end
@@ -459,16 +411,14 @@ local function runAutoPackageSH(isPostHop)
     if not AutoPackageSHEnabled then return end
 
     if isPostHop then
-        if not game:IsLoaded() then
-            game.Loaded:Wait()
-        end
+        if not game:IsLoaded() then game.Loaded:Wait() end
         pcall(function()
             local remote = game:GetService("ReplicatedStorage")
                 :WaitForChild("Connections", 10)
                 :WaitForChild("Spawn", 10)
             remote:FireServer(2)
         end)
-        if not interruptibleWaitSH(5) then return end
+        if not interruptibleWait(5, function() return AutoPackageSHEnabled end) then return end
     end
 
     deliverPackageOnce()
@@ -477,7 +427,339 @@ local function runAutoPackageSH(isPostHop)
     serverHop()
 end
 
-MainTab:CreateToggle({
+-- ==================== UI Library ====================
+
+-- Ocean theme palette
+local COLOR_BG        = Color3.fromRGB(15, 25, 40)
+local COLOR_TITLE     = Color3.fromRGB(20, 40, 60)
+local COLOR_ROW       = Color3.fromRGB(25, 45, 65)
+local COLOR_TRACK     = Color3.fromRGB(40, 60, 80)
+local COLOR_OFF       = Color3.fromRGB(60, 80, 100)
+local COLOR_ACCENT    = Color3.fromRGB(60, 180, 210)
+local COLOR_TEXT      = Color3.fromRGB(230, 240, 250)
+local COLOR_CLOSE     = Color3.fromRGB(200, 60, 80)
+
+local Flags = {}
+
+local function mountGui(gui)
+    local parented = false
+    if gethui then
+        pcall(function() gui.Parent = gethui(); parented = true end)
+    end
+    if not parented and syn and syn.protect_gui then
+        pcall(function() syn.protect_gui(gui) end)
+    end
+    if not parented then
+        pcall(function() gui.Parent = game:GetService("CoreGui"); parented = true end)
+    end
+    if not parented then
+        gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+end
+
+local function createWindow(title)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "RafsoHub"
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    mountGui(gui)
+
+    local main = Instance.new("Frame")
+    main.Size = UDim2.new(0, 360, 0, 340)
+    main.Position = UDim2.new(0.5, -180, 0.5, -170)
+    main.BackgroundColor3 = COLOR_BG
+    main.BorderSizePixel = 0
+    main.Active = true
+    main.Parent = gui
+    Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", main)
+    stroke.Color = COLOR_ACCENT
+    stroke.Thickness = 1
+    stroke.Transparency = 0.6
+
+    -- Title bar
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 36)
+    titleBar.BackgroundColor3 = COLOR_TITLE
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = main
+    Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 8)
+    local tbFix = Instance.new("Frame", titleBar)
+    tbFix.Size = UDim2.new(1, 0, 0, 10)
+    tbFix.Position = UDim2.new(0, 0, 1, -10)
+    tbFix.BackgroundColor3 = COLOR_TITLE
+    tbFix.BorderSizePixel = 0
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Text = title
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 15
+    titleLabel.TextColor3 = COLOR_TEXT
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Size = UDim2.new(1, -80, 1, 0)
+    titleLabel.Position = UDim2.new(0, 14, 0, 0)
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 28, 0, 28)
+    closeBtn.Position = UDim2.new(1, -34, 0, 4)
+    closeBtn.BackgroundColor3 = COLOR_CLOSE
+    closeBtn.Text = "X"
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 13
+    closeBtn.TextColor3 = COLOR_TEXT
+    closeBtn.BorderSizePixel = 0
+    closeBtn.AutoButtonColor = false
+    closeBtn.Parent = titleBar
+    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+
+    local minBtn = Instance.new("TextButton")
+    minBtn.Size = UDim2.new(0, 28, 0, 28)
+    minBtn.Position = UDim2.new(1, -66, 0, 4)
+    minBtn.BackgroundColor3 = COLOR_OFF
+    minBtn.Text = "-"
+    minBtn.Font = Enum.Font.GothamBold
+    minBtn.TextSize = 18
+    minBtn.TextColor3 = COLOR_TEXT
+    minBtn.BorderSizePixel = 0
+    minBtn.AutoButtonColor = false
+    minBtn.Parent = titleBar
+    Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
+
+    -- Content area
+    local content = Instance.new("ScrollingFrame")
+    content.Size = UDim2.new(1, -20, 1, -50)
+    content.Position = UDim2.new(0, 10, 0, 44)
+    content.BackgroundTransparency = 1
+    content.BorderSizePixel = 0
+    content.ScrollBarThickness = 4
+    content.ScrollBarImageColor3 = COLOR_ACCENT
+    content.CanvasSize = UDim2.new(0, 0, 0, 0)
+    content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    content.Parent = main
+
+    local layout = Instance.new("UIListLayout", content)
+    layout.Padding = UDim.new(0, 8)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    local pad = Instance.new("UIPadding", content)
+    pad.PaddingTop = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 4)
+
+    -- Minimize
+    local minimized = false
+    local expandedSize = main.Size
+    minBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        content.Visible = not minimized
+        local goal = minimized and UDim2.new(0, 360, 0, 36) or expandedSize
+        TweenService:Create(main, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = goal }):Play()
+    end)
+
+    -- Close
+    closeBtn.MouseButton1Click:Connect(function()
+        gui.Enabled = false
+    end)
+
+    -- Drag
+    local dragging, dragStart, startPos
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    return content, gui
+end
+
+local function createToggle(parent, opts)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 40)
+    row.BackgroundColor3 = COLOR_ROW
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+    local label = Instance.new("TextLabel")
+    label.Text = opts.Name
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 14
+    label.TextColor3 = COLOR_TEXT
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, -70, 1, 0)
+    label.Position = UDim2.new(0, 14, 0, 0)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = row
+
+    local switch = Instance.new("TextButton")
+    switch.Size = UDim2.new(0, 44, 0, 22)
+    switch.Position = UDim2.new(1, -56, 0.5, -11)
+    switch.BackgroundColor3 = COLOR_OFF
+    switch.Text = ""
+    switch.AutoButtonColor = false
+    switch.BorderSizePixel = 0
+    switch.Parent = row
+    Instance.new("UICorner", switch).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 18, 0, 18)
+    knob.Position = UDim2.new(0, 2, 0.5, -9)
+    knob.BackgroundColor3 = COLOR_TEXT
+    knob.BorderSizePixel = 0
+    knob.Parent = switch
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local state = opts.CurrentValue or false
+
+    local function updateVisual()
+        local bgGoal = state and COLOR_ACCENT or COLOR_OFF
+        local knobGoal = state and UDim2.new(1, -20, 0.5, -9) or UDim2.new(0, 2, 0.5, -9)
+        TweenService:Create(switch, TweenInfo.new(0.15), { BackgroundColor3 = bgGoal }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = knobGoal }):Play()
+    end
+
+    local api = {}
+    function api:Set(value)
+        state = value and true or false
+        updateVisual()
+        if opts.Callback then pcall(opts.Callback, state) end
+    end
+    function api:Get() return state end
+
+    switch.MouseButton1Click:Connect(function() api:Set(not state) end)
+    updateVisual()
+
+    if opts.Flag then Flags[opts.Flag] = api end
+    return api
+end
+
+local function createSlider(parent, opts)
+    local minV, maxV = opts.Range[1], opts.Range[2]
+    local value = opts.CurrentValue or minV
+    local increment = opts.Increment or 1
+
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 58)
+    row.BackgroundColor3 = COLOR_ROW
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+    local label = Instance.new("TextLabel")
+    label.Text = opts.Name
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 14
+    label.TextColor3 = COLOR_TEXT
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(0.5, 0, 0, 22)
+    label.Position = UDim2.new(0, 14, 0, 6)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = row
+
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Font = Enum.Font.Gotham
+    valueLabel.TextSize = 14
+    valueLabel.TextColor3 = COLOR_ACCENT
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Size = UDim2.new(0.5, -14, 0, 22)
+    valueLabel.Position = UDim2.new(0.5, 0, 0, 6)
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valueLabel.Parent = row
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, -28, 0, 6)
+    track.Position = UDim2.new(0, 14, 0, 40)
+    track.BackgroundColor3 = COLOR_TRACK
+    track.BorderSizePixel = 0
+    track.Parent = row
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame")
+    fill.BackgroundColor3 = COLOR_ACCENT
+    fill.BorderSizePixel = 0
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local hit = Instance.new("TextButton")
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    hit.Size = UDim2.new(1, 0, 0, 24)
+    hit.Position = UDim2.new(0, 0, 0, 31)
+    hit.Parent = row
+    hit.AutoButtonColor = false
+
+    local function refresh()
+        local alpha = (value - minV) / (maxV - minV)
+        fill.Size = UDim2.new(alpha, 0, 1, 0)
+        valueLabel.Text = string.format("%d%s", value, opts.Suffix or "")
+    end
+
+    local function setFromX(mouseX)
+        local absPos = track.AbsolutePosition.X
+        local absSize = track.AbsoluteSize.X
+        if absSize <= 0 then return end
+        local alpha = math.clamp((mouseX - absPos) / absSize, 0, 1)
+        local raw = minV + (maxV - minV) * alpha
+        local snapped = math.floor(raw / increment + 0.5) * increment
+        snapped = math.clamp(snapped, minV, maxV)
+        if snapped ~= value then
+            value = snapped
+            refresh()
+            if opts.Callback then pcall(opts.Callback, value) end
+        end
+    end
+
+    local dragging = false
+    hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            setFromX(input.Position.X)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            setFromX(input.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    refresh()
+    if opts.Callback then pcall(opts.Callback, value) end
+
+    local api = {}
+    function api:Set(v)
+        value = math.clamp(v, minV, maxV)
+        refresh()
+        if opts.Callback then pcall(opts.Callback, value) end
+    end
+    function api:Get() return value end
+    if opts.Flag then Flags[opts.Flag] = api end
+    return api
+end
+
+-- ==================== UI Construction ====================
+
+local content, rootGui = createWindow("Rafso Hub")
+
+createToggle(content, {
     Name = "Auto-Chest",
     CurrentValue = false,
     Flag = "AutoChestToggle",
@@ -493,7 +775,7 @@ MainTab:CreateToggle({
     end,
 })
 
-MainTab:CreateToggle({
+createToggle(content, {
     Name = "Auto-Package",
     CurrentValue = false,
     Flag = "AutoPackageToggle",
@@ -507,7 +789,7 @@ MainTab:CreateToggle({
     end,
 })
 
-MainTab:CreateToggle({
+createToggle(content, {
     Name = "Auto-Package S-H",
     CurrentValue = false,
     Flag = "AutoPackageSHToggle",
@@ -524,11 +806,11 @@ MainTab:CreateToggle({
     end,
 })
 
-MainTab:CreateSlider({
+createSlider(content, {
     Name = "Speed",
-    Range = {100, 250},
+    Range = { 100, 250 },
     Increment = 10,
-    Suffix = "studs/s",
+    Suffix = " studs/s",
     CurrentValue = 200,
     Flag = "SpeedSlider",
     Callback = function(value)
@@ -536,36 +818,25 @@ MainTab:CreateSlider({
     end,
 })
 
--- Auto-resume Auto-Package S-H if the queue_on_teleport flag is set
+-- ==================== Auto-Resume After Server Hop ====================
+
 task.spawn(function()
     local postHop = getgenv().RafsoPostHop == true
     if not postHop then
-        -- fallback: also check the saved state file
         local state = loadSavedState()
         if not (state and state.AutoPackageSH) then return end
     end
     getgenv().RafsoPostHop = nil
 
-    if not game:IsLoaded() then
-        game.Loaded:Wait()
-    end
-    task.wait(2)
-
-    -- Wait for the Rayfield toggle to be registered
-    local timeout = tick() + 10
-    while not (Rayfield.Flags and Rayfield.Flags.AutoPackageSHToggle) and tick() < timeout do
-        task.wait(0.1)
-    end
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    task.wait(1.5)
 
     SHAutoResumeMode = true
-    local setOk = false
-    if Rayfield.Flags and Rayfield.Flags.AutoPackageSHToggle then
-        setOk = pcall(function()
-            Rayfield.Flags.AutoPackageSHToggle:Set(true)
-        end)
+    local toggle = Flags.AutoPackageSHToggle
+    if toggle then
+        pcall(function() toggle:Set(true) end)
     end
 
-    -- Fallback: if Set didn't fire the callback, drive the flow directly
     task.wait(0.5)
     if not AutoPackageSHEnabled then
         AutoPackageSHEnabled = true
