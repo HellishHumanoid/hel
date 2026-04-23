@@ -388,27 +388,51 @@ local function deliverPackageOnce()
         attempts = attempts + 1
     end
     if not AutoPackageSHEnabled then return end
+    if not hasPackage() then return end
 
-    if hasPackage() then
-        equipPackage()
-        while AutoPackageSHEnabled and hasPackage() do
-            local anyNPC = false
-            for _, entry in ipairs(PackageNPCs) do
-                if not AutoPackageSHEnabled or not hasPackage() then break end
-                local root = resolveNPC(entry)
-                if root then
-                    anyNPC = true
-                    local _, hrp = getCharacter()
-                    if hrp then
-                        local frontPos = root.Position + root.CFrame.LookVector * 3
-                        hrp.CFrame = CFrame.new(frontPos, root.Position)
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                    end
-                    if not interruptibleWait(1, check) then break end
-                end
-            end
-            if not anyNPC then break end
+    -- Wait for at least one NPC to actually exist in workspace before starting the delivery loop
+    local npcDeadline = tick() + 20
+    while AutoPackageSHEnabled and tick() < npcDeadline do
+        local resolved = false
+        for _, entry in ipairs(PackageNPCs) do
+            if resolveNPC(entry) then resolved = true; break end
         end
+        if resolved then break end
+        task.wait(0.3)
+    end
+    if not AutoPackageSHEnabled then return end
+
+    -- Equip the package; retry until the Package tool is in the character (not just backpack)
+    local equipDeadline = tick() + 8
+    while AutoPackageSHEnabled and tick() < equipDeadline do
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Package") then break end
+        equipPackage()
+        task.wait(0.25)
+    end
+
+    -- Deliver: iterate NPCs, capped to a few passes so we can never infinite-loop
+    local maxPasses = 6
+    local passes = 0
+    while AutoPackageSHEnabled and hasPackage() and passes < maxPasses do
+        passes = passes + 1
+        local anyNPC = false
+        for _, entry in ipairs(PackageNPCs) do
+            if not AutoPackageSHEnabled or not hasPackage() then break end
+            local root = resolveNPC(entry)
+            if root then
+                anyNPC = true
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local frontPos = root.Position + root.CFrame.LookVector * 3
+                    hrp.CFrame = CFrame.new(frontPos, root.Position)
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                end
+                if not interruptibleWait(1, check) then break end
+            end
+        end
+        if not anyNPC then break end
     end
 end
 
@@ -837,7 +861,10 @@ createToggle(content, {
         if value then
             local postHop = SHAutoResumeMode
             SHAutoResumeMode = false
-            task.spawn(function() runAutoPackageSH(postHop) end)
+            task.spawn(function()
+                local ok, err = pcall(runAutoPackageSH, postHop)
+                if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
+            end)
             task.spawn(runM1Spam)
         end
     end,
@@ -879,7 +906,10 @@ task.spawn(function()
         AutoPackageSHEnabled = true
         saveState()
         updateNoclip()
-        task.spawn(function() runAutoPackageSH(true) end)
+        task.spawn(function()
+            local ok, err = pcall(runAutoPackageSH, true)
+            if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
+        end)
         task.spawn(runM1Spam)
     end
 end)
