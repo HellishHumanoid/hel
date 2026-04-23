@@ -419,25 +419,31 @@ local function runAutoPackageSH(isPostHop)
     if isPostHop then
         -- Wait for the game itself to finish loading
         if not game:IsLoaded() then game.Loaded:Wait() end
-        if not interruptibleWait(1, check) then return end
+        if not interruptibleWait(3, check) then return end
 
-        -- Fire the spawn remote
-        pcall(function()
-            local remote = game:GetService("ReplicatedStorage")
-                :WaitForChild("Connections", 15)
-                :WaitForChild("Spawn", 15)
-            remote:FireServer(2)
-        end)
-
-        -- Wait for the character to actually spawn with a root part and humanoid
-        local charDeadline = tick() + 20
-        while AutoPackageSHEnabled and tick() < charDeadline do
+        -- Keep firing Spawn until the character actually exists with a root and humanoid
+        local function characterReady()
             local char = LocalPlayer.Character
-            if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum.Health > 0 then break end
+            if not char then return false end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            return hrp ~= nil and hum ~= nil and hum.Health > 0
+        end
+
+        local spawnDeadline = tick() + 45
+        while AutoPackageSHEnabled and not characterReady() and tick() < spawnDeadline do
+            pcall(function()
+                local remote = game:GetService("ReplicatedStorage")
+                    :WaitForChild("Connections", 10)
+                    :WaitForChild("Spawn", 10)
+                remote:FireServer(2)
+            end)
+
+            -- Poll for spawn for 3 seconds, then re-fire if still not spawned
+            local pollUntil = tick() + 3
+            while AutoPackageSHEnabled and not characterReady() and tick() < pollUntil do
+                task.wait(0.3)
             end
-            task.wait(0.2)
         end
         if not AutoPackageSHEnabled then return end
 
