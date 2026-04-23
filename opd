@@ -25,9 +25,8 @@ local TweenSpeed = 200
 local NoclipConnection = nil
 local Platform = nil
 
--- OPTIONAL: paste the raw URL of this script so it auto-resumes after a server hop
--- using queue_on_teleport. If you autoexecute this script instead, leave as nil.
-local SCRIPT_URL = nil
+-- Raw URL of this script used by queue_on_teleport to auto-resume after a server hop.
+local SCRIPT_URL = "https://raw.githubusercontent.com/HellishHumanoid/hel/refs/heads/main/opd"
 
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
