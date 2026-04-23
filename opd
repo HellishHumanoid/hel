@@ -378,7 +378,10 @@ local function queueReexec()
     if not queue_on_teleport then return end
     if SCRIPT_URL and SCRIPT_URL ~= "" then
         pcall(function()
-            queue_on_teleport(string.format("loadstring(game:HttpGet('%s'))()", SCRIPT_URL))
+            queue_on_teleport(string.format(
+                "getgenv().RafsoPostHop = true; loadstring(game:HttpGet('%s'))()",
+                SCRIPT_URL
+            ))
         end)
     end
 end
@@ -533,17 +536,42 @@ MainTab:CreateSlider({
     end,
 })
 
--- Auto-resume Auto-Package S-H if it was active before a server hop
+-- Auto-resume Auto-Package S-H if the queue_on_teleport flag is set
 task.spawn(function()
-    local state = loadSavedState()
-    if state and state.AutoPackageSH then
-        if not game:IsLoaded() then
-            game.Loaded:Wait()
-        end
-        task.wait(1)
-        SHAutoResumeMode = true
-        pcall(function()
+    local postHop = getgenv().RafsoPostHop == true
+    if not postHop then
+        -- fallback: also check the saved state file
+        local state = loadSavedState()
+        if not (state and state.AutoPackageSH) then return end
+    end
+    getgenv().RafsoPostHop = nil
+
+    if not game:IsLoaded() then
+        game.Loaded:Wait()
+    end
+    task.wait(2)
+
+    -- Wait for the Rayfield toggle to be registered
+    local timeout = tick() + 10
+    while not (Rayfield.Flags and Rayfield.Flags.AutoPackageSHToggle) and tick() < timeout do
+        task.wait(0.1)
+    end
+
+    SHAutoResumeMode = true
+    local setOk = false
+    if Rayfield.Flags and Rayfield.Flags.AutoPackageSHToggle then
+        setOk = pcall(function()
             Rayfield.Flags.AutoPackageSHToggle:Set(true)
         end)
+    end
+
+    -- Fallback: if Set didn't fire the callback, drive the flow directly
+    task.wait(0.5)
+    if not AutoPackageSHEnabled then
+        AutoPackageSHEnabled = true
+        saveState()
+        updateNoclip()
+        task.spawn(function() runAutoPackageSH(true) end)
+        task.spawn(runM1Spam)
     end
 end)
