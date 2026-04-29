@@ -179,20 +179,40 @@ local function resolveNPC(entry)
         or inst:FindFirstChildWhichIsA("BasePart")
 end
 
-local function hasPackage()
+local function isPackageTool(item)
+    return item and item:IsA("Tool") and string.find(item.Name, "Package") ~= nil
+end
+
+local function findPackageInBackpack()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return nil end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if isPackageTool(item) then return item end
+    end
+    return nil
+end
+
+local function findEquippedPackage()
     local char = LocalPlayer.Character
-    if backpack and backpack:FindFirstChild("Package") then return true end
-    if char and char:FindFirstChild("Package") then return true end
-    return false
+    if not char then return nil end
+    for _, item in ipairs(char:GetChildren()) do
+        if isPackageTool(item) then return item end
+    end
+    return nil
+end
+
+local function hasPackage()
+    return findEquippedPackage() ~= nil or findPackageInBackpack() ~= nil
 end
 
 local function equipPackage()
+    -- already holding a package?
+    if findEquippedPackage() then return end
     local char = LocalPlayer.Character
     local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    local tool = backpack and backpack:FindFirstChild("Package")
-    if tool and humanoid then humanoid:EquipTool(tool) end
+    if not humanoid then return end
+    local tool = findPackageInBackpack()
+    if tool then humanoid:EquipTool(tool) end
 end
 
 local function fireRetumPackage()
@@ -292,6 +312,14 @@ local function runAutoPackage()
                 local anyNPC = false
                 for _, entry in ipairs(PackageNPCs) do
                     if not AutoPackageEnabled or not hasPackage() then break end
+
+                    -- If the held package was delivered, grab the next one
+                    if not findEquippedPackage() then
+                        equipPackage()
+                        task.wait(0.15)
+                        if not hasPackage() then break end
+                    end
+
                     local root = resolveNPC(entry)
                     if root then
                         anyNPC = true
@@ -406,23 +434,30 @@ local function deliverPackageOnce()
     end
     if not AutoPackageSHEnabled then return end
 
-    -- Equip the package; retry until the Package tool is in the character (not just backpack)
+    -- Equip a package; retry until one is actually in the character (not just backpack)
     local equipDeadline = tick() + 8
     while AutoPackageSHEnabled and tick() < equipDeadline do
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("Package") then break end
+        if findEquippedPackage() then break end
         equipPackage()
         task.wait(0.25)
     end
 
     -- Deliver: iterate NPCs, capped to a few passes so we can never infinite-loop
-    local maxPasses = 6
+    local maxPasses = 12
     local passes = 0
     while AutoPackageSHEnabled and hasPackage() and passes < maxPasses do
         passes = passes + 1
         local anyNPC = false
         for _, entry in ipairs(PackageNPCs) do
             if not AutoPackageSHEnabled or not hasPackage() then break end
+
+            -- Re-equip the next package if the held one was just delivered
+            if not findEquippedPackage() then
+                equipPackage()
+                task.wait(0.15)
+                if not hasPackage() then break end
+            end
+
             local root = resolveNPC(entry)
             if root then
                 anyNPC = true
