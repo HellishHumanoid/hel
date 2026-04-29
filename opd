@@ -17,6 +17,7 @@ local AutoChestEnabled = false
 local AutoPackageEnabled = false
 local AutoPackageSHEnabled = false
 local AutoDrinkEnabled = false
+local AutoObsEnabled = false
 local SHAutoResumeMode = false
 local M1SpamActive = false
 local TweenSpeed = 200
@@ -259,6 +260,21 @@ local function equipDrinks()
         if isDrinkTool(item) then
             pcall(function() item.Parent = char end)
         end
+    end
+end
+
+local function runAutoObs()
+    while AutoObsEnabled do
+        pcall(function()
+            local userData = workspace:WaitForChild("UserData", 5)
+            if not userData then return end
+            local userFolder = userData:WaitForChild("User_" .. LocalPlayer.UserId, 5)
+            if not userFolder then return end
+            local remote = userFolder:WaitForChild("III", 5)
+            if not remote then return end
+            remote:FireServer("On", 1)
+        end)
+        task.wait(0.1)
     end
 end
 
@@ -974,6 +990,18 @@ createToggle(content, {
         AutoDrinkEnabled = value
         if value then
             task.spawn(runAutoDrink)
+        end
+    end,
+})
+
+createToggle(content, {
+    Name = "Auto-Obs",
+    CurrentValue = false,
+    Flag = "AutoObsToggle",
+    Callback = function(value)
+        AutoObsEnabled = value
+        if value then
+            task.spawn(runAutoObs)
         end
     end,
 })
