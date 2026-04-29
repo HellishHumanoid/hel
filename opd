@@ -394,7 +394,7 @@ local function runAutoPackage()
         end
 
         if not AutoPackageEnabled then break end
-        if not interruptibleWait(60, check) then break end
+        if not interruptibleWait(1, check) then break end
     end
 end
 
@@ -985,6 +985,31 @@ createSlider(content, {
         TweenSpeed = value
     end,
 })
+
+-- ==================== Auto-Respawn ====================
+
+local function fireSpawnRemote()
+    pcall(function()
+        local remote = game:GetService("ReplicatedStorage")
+            :WaitForChild("Connections", 10)
+            :WaitForChild("Spawn", 10)
+        remote:FireServer(2)
+    end)
+end
+
+local function hookCharacter(char)
+    local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 10)
+    if not humanoid then return end
+    humanoid.Died:Connect(function()
+        task.wait(0.5)
+        fireSpawnRemote()
+    end)
+end
+
+LocalPlayer.CharacterAdded:Connect(hookCharacter)
+if LocalPlayer.Character then
+    task.spawn(hookCharacter, LocalPlayer.Character)
+end
 
 -- ==================== Auto-Resume After Server Hop ====================
 
