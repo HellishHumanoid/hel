@@ -206,13 +206,16 @@ local function hasPackage()
 end
 
 local function equipPackage()
-    -- already holding a package?
-    if findEquippedPackage() then return end
+    -- Reparent every package-named tool from Backpack into the Character so they're all equipped at once.
     local char = LocalPlayer.Character
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    local tool = findPackageInBackpack()
-    if tool then humanoid:EquipTool(tool) end
+    if not char then return end
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if isPackageTool(item) then
+            pcall(function() item.Parent = char end)
+        end
+    end
 end
 
 local function fireRetumPackage()
@@ -243,9 +246,12 @@ local function runM1Spam()
     M1SpamActive = true
     while AutoPackageEnabled or AutoPackageSHEnabled do
         local char = LocalPlayer.Character
-        local tool = char and char:FindFirstChildOfClass("Tool")
-        if tool then
-            pcall(function() tool:Activate() end)
+        if char then
+            for _, item in ipairs(char:GetChildren()) do
+                if isPackageTool(item) then
+                    pcall(function() item:Activate() end)
+                end
+            end
         end
         task.wait(0.1)
     end
@@ -313,12 +319,8 @@ local function runAutoPackage()
                 for _, entry in ipairs(PackageNPCs) do
                     if not AutoPackageEnabled or not hasPackage() then break end
 
-                    -- If the held package was delivered, grab the next one
-                    if not findEquippedPackage() then
-                        equipPackage()
-                        task.wait(0.15)
-                        if not hasPackage() then break end
-                    end
+                    -- Sweep any newly-arrived packages from Backpack into the Character
+                    equipPackage()
 
                     local root = resolveNPC(entry)
                     if root then
@@ -434,11 +436,11 @@ local function deliverPackageOnce()
     end
     if not AutoPackageSHEnabled then return end
 
-    -- Equip a package; retry until one is actually in the character (not just backpack)
+    -- Equip every package; retry briefly to make sure all current packages are in the character
     local equipDeadline = tick() + 8
     while AutoPackageSHEnabled and tick() < equipDeadline do
-        if findEquippedPackage() then break end
         equipPackage()
+        if findEquippedPackage() and not findPackageInBackpack() then break end
         task.wait(0.25)
     end
 
@@ -451,12 +453,8 @@ local function deliverPackageOnce()
         for _, entry in ipairs(PackageNPCs) do
             if not AutoPackageSHEnabled or not hasPackage() then break end
 
-            -- Re-equip the next package if the held one was just delivered
-            if not findEquippedPackage() then
-                equipPackage()
-                task.wait(0.15)
-                if not hasPackage() then break end
-            end
+            -- Sweep any new packages from Backpack into the Character before each NPC
+            equipPackage()
 
             local root = resolveNPC(entry)
             if root then
