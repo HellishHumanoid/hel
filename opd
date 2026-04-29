@@ -221,7 +221,11 @@ end
 
 local function isDrinkTool(item)
     if not (item and item:IsA("Tool")) then return false end
-    return string.find(item.Name, "Cider") ~= nil or string.find(item.Name, "Smoothie") ~= nil
+    local name = item.Name
+    return string.find(name, "Cider") ~= nil
+        or string.find(name, "Smoothie") ~= nil
+        or string.find(name, "Lemonade") ~= nil
+        or string.find(name, "Juice") ~= nil
 end
 
 local function findDrinkInBackpack()
