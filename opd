@@ -16,6 +16,7 @@ end
 local AutoChestEnabled = false
 local AutoPackageEnabled = false
 local AutoPackageSHEnabled = false
+local AutoDrinkEnabled = false
 local SHAutoResumeMode = false
 local M1SpamActive = false
 local TweenSpeed = 200
@@ -215,6 +216,60 @@ local function equipPackage()
         if isPackageTool(item) then
             pcall(function() item.Parent = char end)
         end
+    end
+end
+
+local function isDrinkTool(item)
+    if not (item and item:IsA("Tool")) then return false end
+    return item.Name == "Cider" or item.Name == "Smoothie"
+end
+
+local function findDrinkInBackpack()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return nil end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if isDrinkTool(item) then return item end
+    end
+    return nil
+end
+
+local function findEquippedDrink()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    for _, item in ipairs(char:GetChildren()) do
+        if isDrinkTool(item) then return item end
+    end
+    return nil
+end
+
+local function hasDrink()
+    return findEquippedDrink() ~= nil or findDrinkInBackpack() ~= nil
+end
+
+local function equipDrinks()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if isDrinkTool(item) then
+            pcall(function() item.Parent = char end)
+        end
+    end
+end
+
+local function runAutoDrink()
+    while AutoDrinkEnabled do
+        equipDrinks()
+        local char = LocalPlayer.Character
+        if char then
+            for _, item in ipairs(char:GetChildren()) do
+                if isDrinkTool(item) then
+                    pcall(function() item:Activate() end)
+                end
+            end
+        end
+        task.wait(0.1)
     end
 end
 
@@ -903,6 +958,18 @@ createToggle(content, {
                 if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
             end)
             task.spawn(runM1Spam)
+        end
+    end,
+})
+
+createToggle(content, {
+    Name = "Auto-Drink",
+    CurrentValue = false,
+    Flag = "AutoDrinkToggle",
+    Callback = function(value)
+        AutoDrinkEnabled = value
+        if value then
+            task.spawn(runAutoDrink)
         end
     end,
 })
