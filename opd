@@ -1073,7 +1073,13 @@ local function hookCharacter(char)
     local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 10)
     if not humanoid then return end
     humanoid.Died:Connect(function()
-        -- Keep firing the spawn remote every 1s until a fresh living character exists
+        -- If Auto-Package S-H is running, jump straight to a fresh server instead of waiting to respawn here
+        if AutoPackageSHEnabled then
+            task.spawn(serverHop)
+            return
+        end
+
+        -- Otherwise keep firing the spawn remote every 1s until a fresh living character exists
         task.spawn(function()
             local diedChar = char
             while true do
