@@ -460,7 +460,11 @@ end
     end)
 end
 
+local HopInProgress = false
 local function serverHop()
+    if HopInProgress then return end
+    HopInProgress = true
+
     local placeId = game.PlaceId
     local triedServers = { [game.JobId] = true }
 
@@ -526,9 +530,9 @@ end
 local function deliverPackageOnce()
     local check = function() return AutoPackageSHEnabled end
 
-    -- Fire the Retum remote once; if no package appears within ~4s, bail out so the caller hops servers
+    -- Fire the Retum remote once; if no package appears within ~3s, bail so the caller hops servers
     fireRetumPackage()
-    local appearTimeout = tick() + 4
+    local appearTimeout = tick() + 3
     while AutoPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
         task.wait(0.2)
     end
@@ -589,11 +593,9 @@ local function runAutoPackageSH(isPostHop)
     local check = function() return AutoPackageSHEnabled end
 
     if isPostHop then
-        -- Wait for the game itself to finish loading
         if not game:IsLoaded() then game.Loaded:Wait() end
-        if not interruptibleWait(3, check) then return end
+        if not interruptibleWait(2, check) then return end
 
-        -- Keep firing Spawn until the character actually exists with a root and humanoid
         local function characterReady()
             local char = LocalPlayer.Character
             if not char then return false end
@@ -602,32 +604,36 @@ local function runAutoPackageSH(isPostHop)
             return hrp ~= nil and hum ~= nil and hum.Health > 0
         end
 
-        local spawnDeadline = tick() + 45
+        -- Try to spawn for up to ~15s; if it never works, just hop to another server
+        local spawnDeadline = tick() + 15
         while AutoPackageSHEnabled and not characterReady() and tick() < spawnDeadline do
             pcall(function()
                 local remote = game:GetService("ReplicatedStorage")
-                    :WaitForChild("Connections", 10)
-                    :WaitForChild("Spawn", 10)
+                    :WaitForChild("Connections", 8)
+                    :WaitForChild("Spawn", 8)
                 remote:FireServer(2)
             end)
-
-            -- Poll for spawn for 3 seconds, then re-fire if still not spawned
-            local pollUntil = tick() + 3
+            local pollUntil = tick() + 2
             while AutoPackageSHEnabled and not characterReady() and tick() < pollUntil do
-                task.wait(0.3)
+                task.wait(0.2)
             end
         end
         if not AutoPackageSHEnabled then return end
+        if not characterReady() then
+            return serverHop()
+        end
 
-        -- Wait for workspace.Merchants to be present (world streamed in)
-        local merchDeadline = tick() + 20
+        -- Wait briefly for workspace.Merchants; if it never appears, hop instead of waiting
+        local merchDeadline = tick() + 8
         while AutoPackageSHEnabled and not workspace:FindFirstChild("Merchants") and tick() < merchDeadline do
             task.wait(0.2)
         end
         if not AutoPackageSHEnabled then return end
+        if not workspace:FindFirstChild("Merchants") then
+            return serverHop()
+        end
 
-        -- Additional 5s buffer as requested
-        if not interruptibleWait(5, check) then return end
+        if not interruptibleWait(2, check) then return end
     end
 
     deliverPackageOnce()
