@@ -1048,6 +1048,16 @@ createSlider(content, {
     end,
 })
 
+-- ==================== Anti-AFK ====================
+
+local VirtualUser = game:GetService("VirtualUser")
+LocalPlayer.Idled:Connect(function()
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
+end)
+
 -- ==================== Auto-Respawn ====================
 
 local function fireSpawnRemote()
@@ -1063,8 +1073,21 @@ local function hookCharacter(char)
     local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 10)
     if not humanoid then return end
     humanoid.Died:Connect(function()
-        task.wait(0.5)
-        fireSpawnRemote()
+        -- Keep firing the spawn remote every 1s until a fresh living character exists
+        task.spawn(function()
+            local diedChar = char
+            while true do
+                local newChar = LocalPlayer.Character
+                if newChar and newChar ~= diedChar then
+                    local newHum = newChar:FindFirstChildOfClass("Humanoid")
+                    if newHum and newHum.Health > 0 then
+                        return
+                    end
+                end
+                fireSpawnRemote()
+                task.wait(1)
+            end
+        end)
     end)
 end
 
