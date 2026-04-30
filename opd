@@ -440,20 +440,27 @@ local function loadSavedState()
 end
 
 local function queueReexec()
-    if not queue_on_teleport then return end
-    if SCRIPT_URL and SCRIPT_URL ~= "" then
-        pcall(function()
-            queue_on_teleport(string.format(
-                "getgenv().RafsoPostHop = true; loadstring(game:HttpGet('%s'))()",
-                SCRIPT_URL
-            ))
-        end)
-    end
+    if not (SCRIPT_URL and SCRIPT_URL ~= "") then return end
+    local queueFn = (typeof(queue_on_teleport) == "function" and queue_on_teleport)
+        or (syn and syn.queue_on_teleport)
+        or (fluxus and fluxus.queue_on_teleport)
+    if not queueFn then return end
+
+    pcall(function()
+        queueFn(string.format([[
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(1)
+getgenv().RafsoPostHop = true
+local ok, src = pcall(function() return game:HttpGet('%s?cb=' .. tostring(tick())) end)
+if ok and src and #src > 200 then
+    local fn = loadstring(src)
+    if fn then fn() end
+end
+]], SCRIPT_URL))
+    end)
 end
 
 local function serverHop()
-    queueReexec()
-
     local placeId = game.PlaceId
     local triedServers = { [game.JobId] = true }
 
@@ -482,6 +489,9 @@ local function serverHop()
                 end
             end
         end
+
+        -- Re-queue the script before every attempt so a failed teleport doesn't drop our queue
+        queueReexec()
 
         hopFailed = false
         if #servers > 0 then
