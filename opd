@@ -516,15 +516,11 @@ end
 local function deliverPackageOnce()
     local check = function() return AutoPackageSHEnabled end
 
-    -- Request the package and wait for it to appear; retry a few times if it doesn't show up
-    local attempts = 0
-    while AutoPackageSHEnabled and not hasPackage() and attempts < 5 do
-        fireRetumPackage()
-        local appearTimeout = tick() + 5
-        while AutoPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
-            task.wait(0.2)
-        end
-        attempts = attempts + 1
+    -- Fire the Retum remote once; if no package appears within ~4s, bail out so the caller hops servers
+    fireRetumPackage()
+    local appearTimeout = tick() + 4
+    while AutoPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
+        task.wait(0.2)
     end
     if not AutoPackageSHEnabled then return end
     if not hasPackage() then return end
