@@ -510,6 +510,10 @@ end
     end)
 end
 
+-- Queue the script to re-execute on ANY teleport, not just our explicit serverHop.
+-- This mirrors how Infinite Yield persists itself across server changes.
+queueReexec()
+
 local HopInProgress = false
 local function serverHop()
     if HopInProgress then return end
@@ -1182,12 +1186,12 @@ end
 -- ==================== Auto-Resume After Server Hop ====================
 
 task.spawn(function()
-    local postHop = getgenv().RafsoPostHop == true
-    if not postHop then
-        local state = loadSavedState()
-        if not (state and state.AutoPackageSH) then return end
-    end
+    -- Consume the post-hop flag; we always queue reexec at startup, but the actual
+    -- decision to resume Auto-Package S-H is based purely on the saved state file.
     getgenv().RafsoPostHop = nil
+
+    local state = loadSavedState()
+    if not (state and state.AutoPackageSH) then return end
 
     if not game:IsLoaded() then game.Loaded:Wait() end
     task.wait(1.5)
