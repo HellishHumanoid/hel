@@ -1,5 +1,35 @@
 -- Rafso Hub (custom UI, Ocean theme)
 
+-- Kill any previous instance so we never end up with two GUIs / two delivery loops running at once
+pcall(function()
+    if typeof(getgenv) == "function" and getgenv().RafsoHubFlagsApi then
+        for _, api in pairs(getgenv().RafsoHubFlagsApi) do
+            if type(api) == "table" and type(api.Set) == "function" then
+                pcall(function() api:Set(false) end)
+            end
+        end
+    end
+    local parents = {}
+    if typeof(gethui) == "function" then
+        local ok, h = pcall(gethui)
+        if ok and h then table.insert(parents, h) end
+    end
+    pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
+    pcall(function()
+        local plr = game:GetService("Players").LocalPlayer
+        if plr then table.insert(parents, plr:FindFirstChildOfClass("PlayerGui")) end
+    end)
+    for _, parent in ipairs(parents) do
+        if parent then
+            for _, child in ipairs(parent:GetChildren()) do
+                if child.Name == "RafsoHub" then
+                    pcall(function() child:Destroy() end)
+                end
+            end
+        end
+    end
+end)
+
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
@@ -406,7 +436,7 @@ local function runAutoPackage()
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(1, check) then break end
+                        if not interruptibleWait(1.5, check) then break end
                     end
                 end
                 if not anyNPC then break end
@@ -530,14 +560,17 @@ end
 local function deliverPackageOnce()
     local check = function() return AutoPackageSHEnabled end
 
-    -- Fire the Retum remote once; if no package appears within ~3s, bail so the caller hops servers
+    -- Fire the Retum remote once; if no package appears within 5s, bail so the caller hops servers
     fireRetumPackage()
-    local appearTimeout = tick() + 3
+    local appearTimeout = tick() + 5
     while AutoPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
         task.wait(0.2)
     end
     if not AutoPackageSHEnabled then return end
     if not hasPackage() then return end
+
+    -- Once we have a package, no more than 180 seconds delivering before forcing a server hop
+    local deliveryDeadline = tick() + 180
 
     -- Wait for at least one NPC to actually exist in workspace before starting the delivery loop
     local npcDeadline = tick() + 20
@@ -562,11 +595,12 @@ local function deliverPackageOnce()
     -- Deliver: iterate NPCs, capped to a few passes so we can never infinite-loop
     local maxPasses = 12
     local passes = 0
-    while AutoPackageSHEnabled and hasPackage() and passes < maxPasses do
+    while AutoPackageSHEnabled and hasPackage() and passes < maxPasses and tick() < deliveryDeadline do
         passes = passes + 1
         local anyNPC = false
         for _, entry in ipairs(PackageNPCs) do
             if not AutoPackageSHEnabled or not hasPackage() then break end
+            if tick() >= deliveryDeadline then break end
 
             -- Sweep any new packages from Backpack into the Character before each NPC
             equipPackage()
@@ -581,7 +615,7 @@ local function deliverPackageOnce()
                     hrp.CFrame = CFrame.new(frontPos, root.Position)
                     hrp.AssemblyLinearVelocity = Vector3.zero
                 end
-                if not interruptibleWait(1, check) then break end
+                if not interruptibleWait(1.5, check) then break end
             end
         end
         if not anyNPC then break end
@@ -655,6 +689,11 @@ local COLOR_TEXT      = Color3.fromRGB(230, 240, 250)
 local COLOR_CLOSE     = Color3.fromRGB(200, 60, 80)
 
 local Flags = {}
+pcall(function()
+    if typeof(getgenv) == "function" then
+        getgenv().RafsoHubFlagsApi = Flags
+    end
+end)
 
 local function mountGui(gui)
     local parented = false
