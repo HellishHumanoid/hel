@@ -43,6 +43,16 @@ while not LocalPlayer do
     LocalPlayer = Players.LocalPlayer
 end
 
+-- Anti-AFK: Roblox kicks players after ~20 minutes of no real input. Server-side remote fires
+-- and CFrame teleports DON'T count, so we hook Idled and simulate a click via VirtualUser.
+pcall(function()
+    local VirtualUser = game:GetService("VirtualUser")
+    LocalPlayer.Idled:Connect(function()
+        pcall(function() VirtualUser:CaptureController() end)
+        pcall(function() VirtualUser:ClickButton2(Vector2.new()) end)
+    end)
+end)
+
 local AutoChestEnabled = false
 local AutoPackageEnabled = false
 local AutoPackageSHEnabled = false
@@ -121,7 +131,15 @@ local function updateNoclip()
     end
 end
 
-local function createPlatform()
+local PlatformConsumers = {}
+local PLATFORM_OFFSET = 3.5
+
+local function shouldPlatformExist()
+    return next(PlatformConsumers) ~= nil
+end
+
+local function createPlatform(consumer)
+    PlatformConsumers[consumer or "default"] = true
     if Platform then return end
     local _, hrp = getCharacter()
     Platform = Instance.new("Part")
@@ -130,22 +148,24 @@ local function createPlatform()
     Platform.Anchored = true
     Platform.CanCollide = true
     Platform.Transparency = 1
-    Platform.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 3, 0))
+    Platform.CFrame = CFrame.new(hrp.Position - Vector3.new(0, PLATFORM_OFFSET, 0))
     Platform.Parent = workspace
 
     task.spawn(function()
-        while Platform and AutoChestEnabled do
+        while Platform and shouldPlatformExist() do
             local char = LocalPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
             if root and Platform then
-                Platform.CFrame = CFrame.new(root.Position - Vector3.new(0, 3, 0))
+                Platform.CFrame = CFrame.new(root.Position - Vector3.new(0, PLATFORM_OFFSET, 0))
             end
             RunService.Heartbeat:Wait()
         end
     end)
 end
 
-local function removePlatform()
+local function removePlatform(consumer)
+    PlatformConsumers[consumer or "default"] = nil
+    if shouldPlatformExist() then return end
     if Platform then
         Platform:Destroy()
         Platform = nil
@@ -380,9 +400,9 @@ local function runAutoChest()
                 if offset.Magnitude < 0.1 then offset = Vector3.new(5, 0, 0) end
                 local targetCFrame = CFrame.new(pos1.Position + offset, pos1.Position)
 
-                createPlatform()
+                createPlatform("chest")
                 local completed = tweenTo(hrp, targetCFrame)
-                removePlatform()
+                removePlatform("chest")
                 if not AutoChestEnabled then break end
                 if not completed then break end
 
@@ -1021,10 +1041,10 @@ createToggle(content, {
         AutoChestEnabled = value
         updateNoclip()
         if value then
-            createPlatform()
+            createPlatform("chest")
             task.spawn(runAutoChest)
         else
-            removePlatform()
+            removePlatform("chest")
         end
     end,
 })
@@ -1037,8 +1057,11 @@ createToggle(content, {
         AutoPackageEnabled = value
         updateNoclip()
         if value then
+            createPlatform("autopackage")
             task.spawn(runAutoPackage)
             task.spawn(runM1Spam)
+        else
+            removePlatform("autopackage")
         end
     end,
 })
@@ -1052,6 +1075,7 @@ createToggle(content, {
         saveState()
         updateNoclip()
         if value then
+            createPlatform("autopackagesh")
             local postHop = SHAutoResumeMode
             SHAutoResumeMode = false
             task.spawn(function()
@@ -1059,6 +1083,8 @@ createToggle(content, {
                 if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
             end)
             task.spawn(runM1Spam)
+        else
+            removePlatform("autopackagesh")
         end
     end,
 })
@@ -1177,6 +1203,7 @@ task.spawn(function()
         AutoPackageSHEnabled = true
         saveState()
         updateNoclip()
+        createPlatform("autopackagesh")
         task.spawn(function()
             local ok, err = pcall(runAutoPackageSH, true)
             if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
