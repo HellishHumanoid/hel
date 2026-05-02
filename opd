@@ -333,26 +333,16 @@ local GrabToolsBlacklist = {
     ["Small Grapple"]  = true,
 }
 
-local function isInsideCharacter(item)
-    local node = item.Parent
-    while node do
-        if node:IsA("Model") and node:FindFirstChildOfClass("Humanoid") then
-            return true
-        end
-        if node == workspace then return false end
-        node = node.Parent
-    end
-    return false
-end
-
 local function runGrabTools()
     while GrabToolsEnabled do
         local backpack = LocalPlayer:FindFirstChild("Backpack")
         if backpack then
-            for _, item in ipairs(workspace:GetDescendants()) do
+            -- Only top-level tools in workspace (loose drops). Tools nested in characters
+            -- or any other model/folder are ignored.
+            for _, item in ipairs(workspace:GetChildren()) do
                 if item:IsA("Tool")
+                    and item.Parent == workspace
                     and not GrabToolsBlacklist[item.Name]
-                    and not isInsideCharacter(item)
                 then
                     pcall(function() item.Parent = backpack end)
                 end
