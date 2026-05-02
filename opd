@@ -609,8 +609,27 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(1)
 getgenv().RafsoPostHop = true
 getgenv().RafsoHubHopInProgress = nil
-local ok, src = pcall(function() return game:HttpGet('%s?cb=' .. tostring(tick())) end)
-if ok and src and #src > 200 then
+
+local src
+for i = 1, 5 do
+    local ok, body = pcall(function() return game:HttpGet('%s?cb=' .. tostring(tick()) .. '_' .. tostring(i)) end)
+    if ok and body and #body > 200 then
+        src = body
+        if writefile then pcall(writefile, "RafsoHub_cached.lua", body) end
+        break
+    end
+    task.wait(2)
+end
+
+if (not src) and isfile and readfile then
+    local ok, exists = pcall(isfile, "RafsoHub_cached.lua")
+    if ok and exists then
+        local ok2, body = pcall(readfile, "RafsoHub_cached.lua")
+        if ok2 and body and #body > 200 then src = body end
+    end
+end
+
+if src then
     local fn = loadstring(src)
     if fn then fn() end
 end
@@ -621,6 +640,18 @@ end
 -- Queue the script to re-execute on ANY teleport, not just our explicit serverHop.
 -- This mirrors how Infinite Yield persists itself across server changes.
 queueReexec()
+
+-- Refresh the on-disk cache of our own source so the queued reexec has a fallback if
+-- GitHub is briefly unreachable on the next server.
+task.spawn(function()
+    if not (writefile and SCRIPT_URL and SCRIPT_URL ~= "") then return end
+    pcall(function()
+        local src = game:HttpGet(SCRIPT_URL .. "?cb=" .. tostring(tick()))
+        if src and #src > 200 then
+            writefile("RafsoHub_cached.lua", src)
+        end
+    end)
+end)
 
 local function isHopInProgress()
     if typeof(getgenv) == "function" then
