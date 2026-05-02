@@ -59,7 +59,9 @@ local AutoPackageSHEnabled = false
 local AutoDrinkEnabled = false
 local AutoObsEnabled = false
 local GrabToolsEnabled = false
+local FruitHopEnabled = false
 local SHAutoResumeMode = false
+local FruitHopAutoResumeMode = false
 local M1SpamActive = false
 local TweenSpeed = 200
 local NoclipConnection = nil
@@ -125,7 +127,7 @@ local function disableNoclip()
 end
 
 local function updateNoclip()
-    if AutoChestEnabled or AutoPackageEnabled or AutoPackageSHEnabled then
+    if AutoChestEnabled or AutoPackageEnabled or AutoPackageSHEnabled or FruitHopEnabled then
         enableNoclip()
     else
         disableNoclip()
@@ -539,7 +541,10 @@ end
 
 local function saveState()
     if not writefile then return end
-    local state = { AutoPackageSH = AutoPackageSHEnabled }
+    local state = {
+        AutoPackageSH = AutoPackageSHEnabled,
+        FruitHop = FruitHopEnabled,
+    }
     pcall(function()
         writefile(StateFile, HttpService:JSONEncode(state))
     end)
@@ -744,6 +749,103 @@ local function manualServerHop()
         if not hopFailed then return end
         task.wait(1)
     end
+end
+
+-- ==================== Fruit-Hop ====================
+
+local function findFruitTool()
+    local function check(container)
+        if not container then return nil end
+        for _, item in ipairs(container:GetChildren()) do
+            if item:IsA("Tool")
+                and string.find(item.Name, "Fruit")
+                and not GrabToolsBlacklist[item.Name]
+            then
+                return item
+            end
+        end
+        return nil
+    end
+    return check(LocalPlayer:FindFirstChild("Backpack")) or check(LocalPlayer.Character)
+end
+
+local function fruitHopGrabAll()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return end
+    for _, item in ipairs(workspace:GetChildren()) do
+        if item:IsA("Tool")
+            and item.Parent == workspace
+            and not GrabToolsBlacklist[item.Name]
+        then
+            pcall(function() item.Parent = backpack end)
+        end
+    end
+end
+
+local function runFruitHop(isPostHop)
+    if not FruitHopEnabled then return end
+    local check = function() return FruitHopEnabled end
+
+    if isPostHop then
+        if not game:IsLoaded() then game.Loaded:Wait() end
+        if not interruptibleWait(2, check) then return end
+
+        local function characterReady()
+            local char = LocalPlayer.Character
+            if not char then return false end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            return hrp ~= nil and hum ~= nil and hum.Health > 0
+        end
+
+        -- Try to spawn for up to 15s; if it never works, just hop
+        local spawnDeadline = tick() + 15
+        while FruitHopEnabled and not characterReady() and tick() < spawnDeadline do
+            pcall(function()
+                local remote = game:GetService("ReplicatedStorage")
+                    :WaitForChild("Connections", 8)
+                    :WaitForChild("Spawn", 8)
+                remote:FireServer(2)
+            end)
+            local pollUntil = tick() + 2
+            while FruitHopEnabled and not characterReady() and tick() < pollUntil do
+                task.wait(0.2)
+            end
+        end
+        if not FruitHopEnabled then return end
+        if not characterReady() then
+            return manualServerHop()
+        end
+
+        if not interruptibleWait(2, check) then return end
+    end
+
+    -- Grab all loose tools in workspace, then give them a moment to land in the Backpack
+    fruitHopGrabAll()
+    if not interruptibleWait(0.8, check) then return end
+    fruitHopGrabAll()
+
+    -- If a non-blacklisted Fruit landed in our inventory, stop and freeze in the safe zone
+    local fruit = findFruitTool()
+    if fruit then
+        FruitHopEnabled = false
+        saveState()
+        if Flags.FruitHopToggle then
+            pcall(function() Flags.FruitHopToggle:Set(false) end)
+        end
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = CFrame.new(1000, 1000, 1000)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            pcall(function() hrp.Anchored = true end)
+        end
+        return
+    end
+
+    if not FruitHopEnabled then return end
+    manualServerHop()
 end
 
 local function deliverPackageOnce()
@@ -1090,28 +1192,31 @@ local function createToggle(parent, opts)
 end
 
 local function createButton(parent, opts)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 40)
+    row.BackgroundColor3 = COLOR_ROW
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 36)
+    btn.Size = UDim2.new(1, -16, 1, -10)
+    btn.Position = UDim2.new(0, 8, 0, 5)
     btn.BackgroundColor3 = COLOR_ACCENT
     btn.BorderSizePixel = 0
     btn.Text = opts.Name
     btn.Font = Enum.Font.GothamBold
     btn.TextSize = 14
     btn.TextColor3 = COLOR_TEXT
-    btn.AutoButtonColor = false
-    btn.Parent = parent
+    btn.AutoButtonColor = true
+    btn.Parent = row
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-    local hoverColor = COLOR_ACCENT:Lerp(Color3.new(1, 1, 1), 0.18)
-    btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = hoverColor }):Play()
-    end)
-    btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = COLOR_ACCENT }):Play()
-    end)
-
     btn.MouseButton1Click:Connect(function()
-        if opts.Callback then pcall(opts.Callback) end
+        if opts.Callback then
+            local ok, err = pcall(opts.Callback)
+            if not ok then warn("[RafsoHub] button callback error: " .. tostring(err)) end
+        end
     end)
 
     local api = {}
@@ -1332,6 +1437,30 @@ createButton(content, {
     end,
 })
 
+createToggle(content, {
+    Name = "Fruit-Hop",
+    CurrentValue = false,
+    Flag = "FruitHopToggle",
+    Callback = function(value)
+        FruitHopEnabled = value
+        saveState()
+        updateNoclip()
+        if value then
+            -- If we're enabling fresh, make sure HRP isn't stuck anchored from a previous run
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then pcall(function() hrp.Anchored = false end) end
+
+            local postHop = FruitHopAutoResumeMode
+            FruitHopAutoResumeMode = false
+            task.spawn(function()
+                local ok, err = pcall(runFruitHop, postHop)
+                if not ok then warn("[RafsoHub] runFruitHop error: " .. tostring(err)) end
+            end)
+        end
+    end,
+})
+
 createSlider(content, {
     Name = "Speed",
     Range = { 100, 250 },
@@ -1402,31 +1531,53 @@ end
 
 task.spawn(function()
     -- Consume the post-hop flag; we always queue reexec at startup, but the actual
-    -- decision to resume Auto-Package S-H is based purely on the saved state file.
+    -- decision to resume any auto loop is based purely on the saved state file.
     getgenv().RafsoPostHop = nil
 
     local state = loadSavedState()
-    if not (state and state.AutoPackageSH) then return end
+    if not state then return end
 
-    if not game:IsLoaded() then game.Loaded:Wait() end
-    task.wait(1.5)
+    if state.AutoPackageSH then
+        if not game:IsLoaded() then game.Loaded:Wait() end
+        task.wait(1.5)
 
-    SHAutoResumeMode = true
-    local toggle = Flags.AutoPackageSHToggle
-    if toggle then
-        pcall(function() toggle:Set(true) end)
-    end
+        SHAutoResumeMode = true
+        local toggle = Flags.AutoPackageSHToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
 
-    task.wait(0.5)
-    if not AutoPackageSHEnabled then
-        AutoPackageSHEnabled = true
-        saveState()
-        updateNoclip()
-        createPlatform("autopackagesh")
-        task.spawn(function()
-            local ok, err = pcall(runAutoPackageSH, true)
-            if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
-        end)
-        task.spawn(runM1Spam)
+        task.wait(0.5)
+        if not AutoPackageSHEnabled then
+            AutoPackageSHEnabled = true
+            saveState()
+            updateNoclip()
+            createPlatform("autopackagesh")
+            task.spawn(function()
+                local ok, err = pcall(runAutoPackageSH, true)
+                if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
+            end)
+            task.spawn(runM1Spam)
+        end
+    elseif state.FruitHop then
+        if not game:IsLoaded() then game.Loaded:Wait() end
+        task.wait(1.5)
+
+        FruitHopAutoResumeMode = true
+        local toggle = Flags.FruitHopToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
+
+        task.wait(0.5)
+        if not FruitHopEnabled then
+            FruitHopEnabled = true
+            saveState()
+            updateNoclip()
+            task.spawn(function()
+                local ok, err = pcall(runFruitHop, true)
+                if not ok then warn("[RafsoHub] runFruitHop error: " .. tostring(err)) end
+            end)
+        end
     end
 end)
