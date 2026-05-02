@@ -326,6 +326,7 @@ local GrabToolsBlacklist = {
     ["Spring Fruit"]   = true,
     ["Love Fruit"]     = true,
     ["Bomb Fruit"]     = true,
+    ["Spin Fruit"]     = true,
 }
 
 local function runGrabTools()
