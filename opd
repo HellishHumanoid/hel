@@ -15,15 +15,14 @@ pcall(function()
     end
 end)
 
--- Kill any previous instance so we never end up with two GUIs / two delivery loops running at once
+-- Destroy any previous Rafso Hub GUI so we don't stack two on top of each other.
+-- We deliberately do NOT call :Set(false) on old toggles here: that would fire the
+-- old callback (which clobbers the state file with "off") and turn off the very
+-- toggle we're about to auto-resume after a server hop. The old toggle's visual
+-- becomes unreachable when the GUI is destroyed; old background loops naturally
+-- end (runAutoPackageSH already returned after its serverHop call) or are harmless
+-- (M1 spam continuing for a few iterations).
 pcall(function()
-    if typeof(getgenv) == "function" and getgenv().RafsoHubFlagsApi then
-        for _, api in pairs(getgenv().RafsoHubFlagsApi) do
-            if type(api) == "table" and type(api.Set) == "function" then
-                pcall(function() api:Set(false) end)
-            end
-        end
-    end
     local parents = {}
     if typeof(gethui) == "function" then
         local ok, h = pcall(gethui)
