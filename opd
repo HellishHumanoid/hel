@@ -335,37 +335,33 @@ local GrabToolsBlacklist = {
     ["Small Grapple"]  = true,
 }
 
-local function pickUpTool(item, hrp, backpack)
-    -- Prefer firetouchinterest so the server runs its real pickup logic and the tool
-    -- becomes legitimately ours (equippable + usable). Fall back to reparenting only
-    -- if the executor doesn't expose firetouchinterest or the tool has no Handle.
-    local handle = item:FindFirstChild("Handle")
-    if handle and hrp and typeof(firetouchinterest) == "function" then
-        pcall(function() firetouchinterest(hrp, handle, 0) end)
-        pcall(function() firetouchinterest(hrp, handle, 1) end)
-    elseif backpack then
-        pcall(function() item.Parent = backpack end)
+local function grabToolEquip(child)
+    if not GrabToolsEnabled then return end
+    if not (child and child:IsA("Tool")) then return end
+    if not child:FindFirstChild("Handle") then return end
+    if GrabToolsBlacklist[child.Name] then return end
+    if child.Parent ~= workspace then return end
+
+    local char = LocalPlayer.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        pcall(function() humanoid:EquipTool(child) end)
     end
 end
 
-local function runGrabTools()
-    while GrabToolsEnabled do
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local backpack = LocalPlayer:FindFirstChild("Backpack")
-        if hrp or backpack then
-            -- Only top-level tools in workspace (loose drops). Tools nested in characters
-            -- or any other model/folder are ignored.
-            for _, item in ipairs(workspace:GetChildren()) do
-                if item:IsA("Tool")
-                    and item.Parent == workspace
-                    and not GrabToolsBlacklist[item.Name]
-                then
-                    pickUpTool(item, hrp, backpack)
-                end
-            end
-        end
-        task.wait(0.5)
+local GrabToolsConnection = nil
+local function startGrabTools()
+    if GrabToolsConnection then GrabToolsConnection:Disconnect() end
+    for _, child in ipairs(workspace:GetChildren()) do
+        grabToolEquip(child)
+    end
+    GrabToolsConnection = workspace.ChildAdded:Connect(grabToolEquip)
+end
+
+local function stopGrabTools()
+    if GrabToolsConnection then
+        GrabToolsConnection:Disconnect()
+        GrabToolsConnection = nil
     end
 end
 
@@ -786,15 +782,15 @@ end
 
 local function fruitHopGrabAll()
     local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if not (hrp or backpack) then return end
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
     for _, item in ipairs(workspace:GetChildren()) do
         if item:IsA("Tool")
             and item.Parent == workspace
+            and item:FindFirstChild("Handle")
             and not GrabToolsBlacklist[item.Name]
         then
-            pickUpTool(item, hrp, backpack)
+            pcall(function() humanoid:EquipTool(item) end)
         end
     end
 end
@@ -1441,7 +1437,9 @@ createToggle(content, {
     Callback = function(value)
         GrabToolsEnabled = value
         if value then
-            task.spawn(runGrabTools)
+            startGrabTools()
+        else
+            stopGrabTools()
         end
     end,
 })
