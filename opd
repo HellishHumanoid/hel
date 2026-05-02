@@ -764,22 +764,29 @@ end
 
 -- ==================== Fruit-Hop ====================
 
-local function findFruitTool()
+-- Returns true if inventory contains anything we should stop hopping for:
+--   - A tool whose name contains "Fruit" AND is NOT in GrabToolsBlacklist
+--   - A tool whose name contains "Box" (e.g., "Common Box", "Rare Box")
+local function hasKeeper()
     local function check(container)
-        if not container then return nil end
+        if not container then return false end
         for _, item in ipairs(container:GetChildren()) do
-            if item:IsA("Tool")
-                and string.find(item.Name, "Fruit")
-                and not GrabToolsBlacklist[item.Name]
-            then
-                return item
+            if item:IsA("Tool") then
+                local name = item.Name
+                if string.find(name, "Fruit") and not GrabToolsBlacklist[name] then
+                    return true
+                end
+                if string.find(name, "Box") then
+                    return true
+                end
             end
         end
-        return nil
+        return false
     end
     return check(LocalPlayer:FindFirstChild("Backpack")) or check(LocalPlayer.Character)
 end
 
+-- IY-style one-shot grab: equip every tool currently loose in workspace
 local function fruitHopGrabAll()
     local char = LocalPlayer.Character
     local humanoid = char and char:FindFirstChildOfClass("Humanoid")
@@ -811,7 +818,7 @@ local function runFruitHop(isPostHop)
             return hrp ~= nil and hum ~= nil and hum.Health > 0
         end
 
-        -- Try to spawn for up to 15s; if it never works, just hop
+        -- Spawn the character (retry up to 15s; if no spawn, just hop again)
         local spawnDeadline = tick() + 15
         while FruitHopEnabled and not characterReady() and tick() < spawnDeadline do
             pcall(function()
@@ -829,18 +836,15 @@ local function runFruitHop(isPostHop)
         if not characterReady() then
             return manualServerHop()
         end
-
-        if not interruptibleWait(2, check) then return end
     end
 
-    -- Grab all loose tools in workspace, then give them a moment to land in the Backpack
+    -- After spawning, wait 3 seconds before scanning, then grab everything in workspace
+    if not interruptibleWait(3, check) then return end
     fruitHopGrabAll()
-    if not interruptibleWait(0.8, check) then return end
-    fruitHopGrabAll()
+    if not interruptibleWait(1, check) then return end
 
-    -- If a non-blacklisted Fruit landed in our inventory, stop and freeze in the safe zone
-    local fruit = findFruitTool()
-    if fruit then
+    -- If the inventory has a non-blacklisted Fruit OR any Box item, stay here in the safe zone
+    if hasKeeper() then
         FruitHopEnabled = false
         saveState()
         if Flags.FruitHopToggle then
@@ -857,6 +861,7 @@ local function runFruitHop(isPostHop)
         return
     end
 
+    -- Nothing worth keeping; hop to the next server
     if not FruitHopEnabled then return end
     manualServerHop()
 end
