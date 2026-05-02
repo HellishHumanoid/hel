@@ -15,6 +15,21 @@ pcall(function()
     end
 end)
 
+-- Session token: every script invocation gets a unique ID and registers it in getgenv.
+-- All loops/connections check this on each iteration; if the registered ID has changed
+-- (a newer instance has taken over), they exit naturally. This prevents stacking after
+-- repeated reloads / server hops.
+local SESSION_ID = tostring(tick()) .. ":" .. tostring(math.random(1, 1e9))
+pcall(function()
+    if typeof(getgenv) == "function" then
+        getgenv().RafsoHubCurrentSession = SESSION_ID
+    end
+end)
+local function isCurrentSession()
+    if typeof(getgenv) ~= "function" then return true end
+    return getgenv().RafsoHubCurrentSession == SESSION_ID
+end
+
 -- Destroy any previous Rafso Hub GUI so we don't stack two on top of each other.
 -- We deliberately do NOT call :Set(false) on old toggles here: that would fire the
 -- old callback (which clobbers the state file with "off") and turn off the very
@@ -330,7 +345,7 @@ local function equipDrinks()
 end
 
 local function runAutoObs()
-    while AutoObsEnabled do
+    while AutoObsEnabled and isCurrentSession() do
         pcall(function()
             local userData = workspace:WaitForChild("UserData", 5)
             if not userData then return end
@@ -345,7 +360,7 @@ local function runAutoObs()
 end
 
 local function runAutoDrink()
-    while AutoDrinkEnabled do
+    while AutoDrinkEnabled and isCurrentSession() do
         equipDrinks()
         local char = LocalPlayer.Character
         if char then
@@ -385,7 +400,7 @@ end
 local function runM1Spam()
     if M1SpamActive then return end
     M1SpamActive = true
-    while AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled do
+    while (AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled) and isCurrentSession() do
         local char = LocalPlayer.Character
         if char then
             for _, item in ipairs(char:GetChildren()) do
@@ -400,7 +415,7 @@ local function runM1Spam()
 end
 
 local function runAutoChest()
-    while AutoChestEnabled do
+    while AutoChestEnabled and isCurrentSession() do
         local chests = workspace:FindFirstChild("Chests")
         if not chests then break end
 
@@ -453,7 +468,7 @@ end
 
 local function runAutoPackage()
     local check = function() return AutoPackageEnabled end
-    while AutoPackageEnabled do
+    while AutoPackageEnabled and isCurrentSession() do
         -- Make sure HRP is movable before this iteration's delivery
         setHRPAnchored(false)
 
@@ -593,6 +608,7 @@ local function queueReexec()
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(1)
 getgenv().RafsoPostHop = true
+getgenv().RafsoHubHopInProgress = nil
 local ok, src = pcall(function() return game:HttpGet('%s?cb=' .. tostring(tick())) end)
 if ok and src and #src > 200 then
     local fn = loadstring(src)
@@ -606,12 +622,22 @@ end
 -- This mirrors how Infinite Yield persists itself across server changes.
 queueReexec()
 
-local HopInProgress = false
+local function isHopInProgress()
+    if typeof(getgenv) == "function" then
+        return getgenv().RafsoHubHopInProgress == true
+    end
+    return false
+end
+local function setHopInProgress(value)
+    if typeof(getgenv) == "function" then
+        getgenv().RafsoHubHopInProgress = value or nil
+    end
+end
 
 -- Simple hop used by Auto-Package S-H: just pick a random untried public server, retry on failure
 local function serverHop()
-    if HopInProgress then return end
-    HopInProgress = true
+    if isHopInProgress() or not isCurrentSession() then return end
+    setHopInProgress(true)
 
     local placeId = game.PlaceId
     local triedServers = { [game.JobId] = true }
@@ -669,8 +695,8 @@ end
 -- Smart hop used by the manual "Serverhop" button: prefers low-pop servers and avoids
 -- ones we've already visited (persisted across sessions in RafsoHub_visited.json)
 local function manualServerHop()
-    if HopInProgress then return end
-    HopInProgress = true
+    if isHopInProgress() or not isCurrentSession() then return end
+    setHopInProgress(true)
 
     local placeId = game.PlaceId
 
@@ -767,7 +793,8 @@ end
 
 local function runSpecialPackageSH(isPostHop)
     if not SpecialPackageSHEnabled then return end
-    local check = function() return SpecialPackageSHEnabled end
+    if not isCurrentSession() then return end
+    local check = function() return SpecialPackageSHEnabled and isCurrentSession() end
 
     if isPostHop then
         -- Just wait for the character to load naturally; no spawn remote, no game.Loaded
@@ -893,6 +920,7 @@ end
 
 local function runAutoPackageSH(isPostHop)
     if not AutoPackageSHEnabled then return end
+    if not isCurrentSession() then return end
 
     if isPostHop then
         -- Just wait for the character to load naturally; no spawn remote, no game.Loaded wait
@@ -900,8 +928,9 @@ local function runAutoPackageSH(isPostHop)
         char:WaitForChild("HumanoidRootPart", 30)
     end
 
+    if not isCurrentSession() then return end
     deliverPackageOnce()
-    if not AutoPackageSHEnabled then return end
+    if not AutoPackageSHEnabled or not isCurrentSession() then return end
 
     serverHop()
 end
