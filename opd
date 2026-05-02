@@ -335,10 +335,25 @@ local GrabToolsBlacklist = {
     ["Small Grapple"]  = true,
 }
 
+local function pickUpTool(item, hrp, backpack)
+    -- Prefer firetouchinterest so the server runs its real pickup logic and the tool
+    -- becomes legitimately ours (equippable + usable). Fall back to reparenting only
+    -- if the executor doesn't expose firetouchinterest or the tool has no Handle.
+    local handle = item:FindFirstChild("Handle")
+    if handle and hrp and typeof(firetouchinterest) == "function" then
+        pcall(function() firetouchinterest(hrp, handle, 0) end)
+        pcall(function() firetouchinterest(hrp, handle, 1) end)
+    elseif backpack then
+        pcall(function() item.Parent = backpack end)
+    end
+end
+
 local function runGrabTools()
     while GrabToolsEnabled do
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local backpack = LocalPlayer:FindFirstChild("Backpack")
-        if backpack then
+        if hrp or backpack then
             -- Only top-level tools in workspace (loose drops). Tools nested in characters
             -- or any other model/folder are ignored.
             for _, item in ipairs(workspace:GetChildren()) do
@@ -346,7 +361,7 @@ local function runGrabTools()
                     and item.Parent == workspace
                     and not GrabToolsBlacklist[item.Name]
                 then
-                    pcall(function() item.Parent = backpack end)
+                    pickUpTool(item, hrp, backpack)
                 end
             end
         end
@@ -770,14 +785,16 @@ local function findFruitTool()
 end
 
 local function fruitHopGrabAll()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if not backpack then return end
+    if not (hrp or backpack) then return end
     for _, item in ipairs(workspace:GetChildren()) do
         if item:IsA("Tool")
             and item.Parent == workspace
             and not GrabToolsBlacklist[item.Name]
         then
-            pcall(function() item.Parent = backpack end)
+            pickUpTool(item, hrp, backpack)
         end
     end
 end
