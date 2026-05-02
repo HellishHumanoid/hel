@@ -556,6 +556,40 @@ local function loadSavedState()
     return nil
 end
 
+-- Persist visited JobIds across server hops so we never bounce back to the same one.
+-- Bump this if you find yourself returning to old servers; ~36 bytes per JobId so 1000 entries ≈ 36KB.
+local VisitedFile = "RafsoHub_visited.json"
+local MAX_VISITED = 1000
+
+local function loadVisitedServers()
+    if not (readfile and isfile) then return {} end
+    local ok, exists = pcall(isfile, VisitedFile)
+    if not ok or not exists then return {} end
+    local ok2, data = pcall(function()
+        return HttpService:JSONDecode(readfile(VisitedFile))
+    end)
+    if ok2 and type(data) == "table" then return data end
+    return {}
+end
+
+local function saveVisitedServers(list)
+    if not writefile then return end
+    pcall(function()
+        writefile(VisitedFile, HttpService:JSONEncode(list))
+    end)
+end
+
+local function rememberVisited(jobId)
+    if not jobId then return end
+    local list = loadVisitedServers()
+    for i, v in ipairs(list) do
+        if v == jobId then table.remove(list, i); break end
+    end
+    table.insert(list, jobId)
+    while #list > MAX_VISITED do table.remove(list, 1) end
+    saveVisitedServers(list)
+end
+
 local function queueReexec()
     if not (SCRIPT_URL and SCRIPT_URL ~= "") then return end
     local queueFn = (typeof(queue_on_teleport) == "function" and queue_on_teleport)
@@ -582,6 +616,8 @@ end
 queueReexec()
 
 local HopInProgress = false
+
+-- Simple hop used by Auto-Package S-H: just pick a random untried public server, retry on failure
 local function serverHop()
     if HopInProgress then return end
     HopInProgress = true
@@ -595,7 +631,6 @@ local function serverHop()
     end)
 
     while true do
-        -- Fetch a fresh server list each retry, in case populations change
         local servers = {}
         local ok, result = pcall(function()
             local url = string.format(
@@ -615,7 +650,6 @@ local function serverHop()
             end
         end
 
-        -- Re-queue the script before every attempt so a failed teleport doesn't drop our queue
         queueReexec()
 
         hopFailed = false
@@ -626,24 +660,88 @@ local function serverHop()
                 TeleportService:TeleportToPlaceInstance(placeId, chosen, LocalPlayer)
             end)
         else
-            -- No more untried servers; let Roblox matchmaker pick one and clear the tried set
             pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
             triedServers = { [game.JobId] = true }
         end
 
-        -- Wait up to 8s for the teleport to either leave or report failure
         local startTime = tick()
         while tick() - startTime < 8 do
             if hopFailed then break end
             task.wait(0.3)
         end
 
-        if not hopFailed then
-            -- Teleport in progress; let Roblox finish it. Bail out so we stop spamming attempts.
-            return
+        if not hopFailed then return end
+        task.wait(1)
+    end
+end
+
+-- Smart hop used by the manual "Serverhop" button: prefers low-pop servers and avoids
+-- ones we've already visited (persisted across sessions in RafsoHub_visited.json)
+local function manualServerHop()
+    if HopInProgress then return end
+    HopInProgress = true
+
+    local placeId = game.PlaceId
+
+    rememberVisited(game.JobId)
+
+    local triedServers = { [game.JobId] = true }
+    for _, jobId in ipairs(loadVisitedServers()) do
+        triedServers[jobId] = true
+    end
+
+    local hopFailed = false
+    TeleportService.TeleportInitFailed:Connect(function(player)
+        if player == LocalPlayer then hopFailed = true end
+    end)
+
+    while true do
+        local servers = {}
+        local ok, result = pcall(function()
+            local url = string.format(
+                "https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=100",
+                placeId
+            )
+            return HttpService:JSONDecode(game:HttpGet(url))
+        end)
+        if ok and result and result.data then
+            for _, s in ipairs(result.data) do
+                if s.playing and s.maxPlayers
+                    and s.playing < s.maxPlayers
+                    and not triedServers[s.id]
+                then
+                    table.insert(servers, s)
+                end
+            end
         end
 
-        -- Teleport rejected (server full, etc.); short backoff then try a different server
+        -- Sort by population ascending, then pick from the lowest-population quarter
+        table.sort(servers, function(a, b) return a.playing < b.playing end)
+
+        queueReexec()
+
+        hopFailed = false
+        if #servers > 0 then
+            local poolSize = math.max(1, math.ceil(#servers / 4))
+            local chosen = servers[math.random(1, poolSize)]
+            triedServers[chosen.id] = true
+            rememberVisited(chosen.id)
+            pcall(function()
+                TeleportService:TeleportToPlaceInstance(placeId, chosen.id, LocalPlayer)
+            end)
+        else
+            saveVisitedServers({})
+            triedServers = { [game.JobId] = true }
+            pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
+        end
+
+        local startTime = tick()
+        while tick() - startTime < 8 do
+            if hopFailed then break end
+            task.wait(0.3)
+        end
+
+        if not hopFailed then return end
         task.wait(1)
     end
 end
@@ -991,6 +1089,36 @@ local function createToggle(parent, opts)
     return api
 end
 
+local function createButton(parent, opts)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 36)
+    btn.BackgroundColor3 = COLOR_ACCENT
+    btn.BorderSizePixel = 0
+    btn.Text = opts.Name
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 14
+    btn.TextColor3 = COLOR_TEXT
+    btn.AutoButtonColor = false
+    btn.Parent = parent
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    local hoverColor = COLOR_ACCENT:Lerp(Color3.new(1, 1, 1), 0.18)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = hoverColor }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = COLOR_ACCENT }):Play()
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        if opts.Callback then pcall(opts.Callback) end
+    end)
+
+    local api = {}
+    if opts.Flag then Flags[opts.Flag] = api end
+    return api
+end
+
 local function createSlider(parent, opts)
     local minV, maxV = opts.Range[1], opts.Range[2]
     local value = opts.CurrentValue or minV
@@ -1193,6 +1321,14 @@ createToggle(content, {
         if value then
             task.spawn(runGrabTools)
         end
+    end,
+})
+
+createButton(content, {
+    Name = "Serverhop",
+    Flag = "ServerhopButton",
+    Callback = function()
+        task.spawn(manualServerHop)
     end,
 })
 
