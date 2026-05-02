@@ -465,9 +465,21 @@ local function runAutoChest()
     end
 end
 
+local function setHRPAnchored(state)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        pcall(function() hrp.Anchored = state end)
+    end
+    return hrp
+end
+
 local function runAutoPackage()
     local check = function() return AutoPackageEnabled end
     while AutoPackageEnabled do
+        -- Make sure HRP is movable before this iteration's delivery
+        setHRPAnchored(false)
+
         fireRetumPackage()
 
         local appearTimeout = tick() + 5
@@ -503,8 +515,24 @@ local function runAutoPackage()
         end
 
         if not AutoPackageEnabled then break end
+
+        -- 1.5s after delivery, teleport to (1000, 1000, 1000) and anchor as a safe zone
+        if not interruptibleWait(1.5, check) then break end
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = CFrame.new(1000, 1000, 1000)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            pcall(function() hrp.Anchored = true end)
+        end
+
+        -- Cooldown while sitting in the safe zone
         if not interruptibleWait(1, check) then break end
     end
+
+    -- Ensure HRP is unanchored when the loop exits (toggle off, etc.)
+    setHRPAnchored(false)
 end
 
 -- ==================== Server Hop Flow ====================
@@ -735,17 +763,6 @@ local function runAutoPackageSH(isPostHop)
 
     deliverPackageOnce()
     if not AutoPackageSHEnabled then return end
-
-    -- 1.5s after delivery, teleport to (1000, 1000, 1000) and freeze in place as a safe zone
-    if not interruptibleWait(1.5, check) then return end
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.CFrame = CFrame.new(1000, 1000, 1000)
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        pcall(function() hrp.Anchored = true end)
-    end
 
     serverHop()
 end
