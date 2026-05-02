@@ -314,12 +314,26 @@ local function equipDrinks()
     end
 end
 
+local GrabToolsBlacklist = {
+    ["Chop Fruit"]     = true,
+    ["Float Fruit"]    = true,
+    ["Barrier Fruit"]  = true,
+    ["Hobby Fruit"]    = true,
+    ["Hot Fruit"]      = true,
+    ["Smelt Fruit"]    = true,
+    ["Swim Fruit"]     = true,
+    ["Diamond Fruit"]  = true,
+    ["Spring Fruit"]   = true,
+    ["Love Fruit"]     = true,
+    ["Bomb Fruit"]     = true,
+}
+
 local function runGrabTools()
     while GrabToolsEnabled do
         local backpack = LocalPlayer:FindFirstChild("Backpack")
         if backpack then
             for _, item in ipairs(workspace:GetDescendants()) do
-                if item:IsA("Tool") then
+                if item:IsA("Tool") and not GrabToolsBlacklist[item.Name] then
                     pcall(function() item.Parent = backpack end)
                 end
             end
