@@ -58,6 +58,7 @@ local AutoPackageEnabled = false
 local AutoPackageSHEnabled = false
 local AutoDrinkEnabled = false
 local AutoObsEnabled = false
+local GrabToolsEnabled = false
 local SHAutoResumeMode = false
 local M1SpamActive = false
 local TweenSpeed = 200
@@ -310,6 +311,20 @@ local function equipDrinks()
         if isDrinkTool(item) then
             pcall(function() item.Parent = char end)
         end
+    end
+end
+
+local function runGrabTools()
+    while GrabToolsEnabled do
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        if backpack then
+            for _, item in ipairs(workspace:GetDescendants()) do
+                if item:IsA("Tool") then
+                    pcall(function() item.Parent = backpack end)
+                end
+            end
+        end
+        task.wait(0.5)
     end
 end
 
@@ -1113,6 +1128,18 @@ createToggle(content, {
         AutoObsEnabled = value
         if value then
             task.spawn(runAutoObs)
+        end
+    end,
+})
+
+createToggle(content, {
+    Name = "Grab Tools",
+    CurrentValue = false,
+    Flag = "GrabToolsToggle",
+    Callback = function(value)
+        GrabToolsEnabled = value
+        if value then
+            task.spawn(runGrabTools)
         end
     end,
 })
