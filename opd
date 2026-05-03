@@ -671,14 +671,24 @@ local function serverHop()
     setHopInProgress(true)
 
     local placeId = game.PlaceId
-    local triedServers = { [game.JobId] = true }
+    local startJobId = game.JobId
+    local triedServers = { [startJobId] = true }
 
     local hopFailed = false
     TeleportService.TeleportInitFailed:Connect(function(player)
         if player == LocalPlayer then hopFailed = true end
     end)
 
-    while true do
+    -- Failsafe watchdog: if we somehow stay locked for over 60s, clear the flag
+    -- so the rest of the script can recover instead of being permanently stuck.
+    task.delay(60, function()
+        if game.JobId == startJobId then setHopInProgress(false) end
+    end)
+
+    -- Time budget: keep retrying for up to 90s, then give up and let the caller decide
+    local hopDeadline = tick() + 90
+
+    while isCurrentSession() and tick() < hopDeadline do
         local servers = {}
         local ok, result = pcall(function()
             local url = string.format(
@@ -709,18 +719,29 @@ local function serverHop()
             end)
         else
             pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
-            triedServers = { [game.JobId] = true }
+            triedServers = { [startJobId] = true }
         end
 
+        -- Wait up to 8s for the teleport to either fail or apparently succeed
         local startTime = tick()
         while tick() - startTime < 8 do
             if hopFailed then break end
             task.wait(0.3)
         end
 
-        if not hopFailed then return end
+        if not hopFailed then
+            -- Apparent success — wait a bit more to see if we actually leave
+            task.wait(4)
+            if game.JobId ~= startJobId then return end
+            -- Silent failure: the teleport call returned, no failure event fired,
+            -- but we're still on the same server. Treat as failed and try again.
+        end
+
         task.wait(1)
     end
+
+    -- We exhausted our budget without leaving; clear the flag so future hops can run
+    if game.JobId == startJobId then setHopInProgress(false) end
 end
 
 -- Smart hop used by the manual "Serverhop" button: prefers low-pop servers and avoids
@@ -730,10 +751,11 @@ local function manualServerHop()
     setHopInProgress(true)
 
     local placeId = game.PlaceId
+    local startJobId = game.JobId
 
-    rememberVisited(game.JobId)
+    rememberVisited(startJobId)
 
-    local triedServers = { [game.JobId] = true }
+    local triedServers = { [startJobId] = true }
     for _, jobId in ipairs(loadVisitedServers()) do
         triedServers[jobId] = true
     end
@@ -743,7 +765,13 @@ local function manualServerHop()
         if player == LocalPlayer then hopFailed = true end
     end)
 
-    while true do
+    task.delay(60, function()
+        if game.JobId == startJobId then setHopInProgress(false) end
+    end)
+
+    local hopDeadline = tick() + 90
+
+    while isCurrentSession() and tick() < hopDeadline do
         local servers = {}
         local ok, result = pcall(function()
             local url = string.format(
@@ -779,7 +807,7 @@ local function manualServerHop()
             end)
         else
             saveVisitedServers({})
-            triedServers = { [game.JobId] = true }
+            triedServers = { [startJobId] = true }
             pcall(function() TeleportService:Teleport(placeId, LocalPlayer) end)
         end
 
@@ -789,9 +817,15 @@ local function manualServerHop()
             task.wait(0.3)
         end
 
-        if not hopFailed then return end
+        if not hopFailed then
+            task.wait(4)
+            if game.JobId ~= startJobId then return end
+        end
+
         task.wait(1)
     end
+
+    if game.JobId == startJobId then setHopInProgress(false) end
 end
 
 -- ==================== Special Package S-H ====================
@@ -833,55 +867,59 @@ local function runSpecialPackageSH(isPostHop)
         char:WaitForChild("HumanoidRootPart", 30)
     end
 
-    -- Fire the Retum remote and wait briefly for packages to appear
-    fireRetumPackage()
-    local appearTimeout = tick() + 4
-    while SpecialPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
-        task.wait(0.2)
-    end
-    if not SpecialPackageSHEnabled then return end
+    -- Loop: each iteration runs one Retum/deliver cycle on this server, then hops
+    while SpecialPackageSHEnabled and isCurrentSession() do
+        -- Fire the Retum remote and wait briefly for packages to appear
+        fireRetumPackage()
+        local appearTimeout = tick() + 4
+        while SpecialPackageSHEnabled and not hasPackage() and tick() < appearTimeout do
+            task.wait(0.2)
+        end
+        if not SpecialPackageSHEnabled then return end
 
-    -- If no special package landed in inventory, hop immediately
-    if not hasSpecialPackage() then
-        return serverHop()
-    end
-
-    -- Equip every package (special + normals all get held simultaneously)
-    equipPackage()
-
-    -- Deliver until the special package is gone, capped at 180s for safety
-    local deliveryDeadline = tick() + 180
-    local maxPasses = 12
-    local passes = 0
-    while SpecialPackageSHEnabled and hasSpecialPackage() and passes < maxPasses and tick() < deliveryDeadline do
-        passes = passes + 1
-        local anyNPC = false
-        for _, entry in ipairs(PackageNPCs) do
-            if not SpecialPackageSHEnabled or not hasSpecialPackage() then break end
-            if tick() >= deliveryDeadline then break end
-
-            -- Sweep any newly-arrived packages from Backpack into the Character
+        -- If no special package landed in inventory, hop immediately
+        if not hasSpecialPackage() then
+            serverHop()
+            task.wait(2)
+        else
+            -- Equip every package (special + normals all get held simultaneously)
             equipPackage()
 
-            local root = resolveNPC(entry)
-            if root then
-                anyNPC = true
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local frontPos = root.Position + root.CFrame.LookVector * 3
-                    hrp.CFrame = CFrame.new(frontPos, root.Position)
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                end
-                if not interruptibleWait(1.5, check) then break end
-            end
-        end
-        if not anyNPC then break end
-    end
+            -- Deliver until the special package is gone, capped at 180s for safety
+            local deliveryDeadline = tick() + 180
+            local maxPasses = 12
+            local passes = 0
+            while SpecialPackageSHEnabled and hasSpecialPackage() and passes < maxPasses and tick() < deliveryDeadline do
+                passes = passes + 1
+                local anyNPC = false
+                for _, entry in ipairs(PackageNPCs) do
+                    if not SpecialPackageSHEnabled or not hasSpecialPackage() then break end
+                    if tick() >= deliveryDeadline then break end
 
-    -- Special package is delivered (or we timed out); don't bother with leftovers, just hop
-    if not SpecialPackageSHEnabled then return end
-    serverHop()
+                    -- Sweep any newly-arrived packages from Backpack into the Character
+                    equipPackage()
+
+                    local root = resolveNPC(entry)
+                    if root then
+                        anyNPC = true
+                        local char = LocalPlayer.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            local frontPos = root.Position + root.CFrame.LookVector * 3
+                            hrp.CFrame = CFrame.new(frontPos, root.Position)
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                        end
+                        if not interruptibleWait(1.5, check) then break end
+                    end
+                end
+                if not anyNPC then break end
+            end
+
+            if not SpecialPackageSHEnabled then return end
+            serverHop()
+            task.wait(2)
+        end
+    end
 end
 
 local function deliverPackageOnce()
@@ -959,11 +997,15 @@ local function runAutoPackageSH(isPostHop)
         char:WaitForChild("HumanoidRootPart", 30)
     end
 
-    if not isCurrentSession() then return end
-    deliverPackageOnce()
-    if not AutoPackageSHEnabled or not isCurrentSession() then return end
-
-    serverHop()
+    -- Loop: deliver, hop, retry. If serverHop returns without teleporting (silent failure),
+    -- we keep trying instead of stopping with the toggle still on.
+    while AutoPackageSHEnabled and isCurrentSession() do
+        deliverPackageOnce()
+        if not (AutoPackageSHEnabled and isCurrentSession()) then return end
+        serverHop()
+        -- If we reach here, serverHop returned and we're still on this server
+        task.wait(2)
+    end
 end
 
 -- ==================== UI Library ====================
