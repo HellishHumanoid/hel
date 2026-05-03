@@ -1549,6 +1549,22 @@ createButton(content, {
     end,
 })
 
+createButton(content, {
+    Name = "Teleport to Rayleigh",
+    Flag = "TeleportRayleighButton",
+    Callback = function()
+        local root = resolveNPC("workspace.Merchants.QuestHakiMerchant")
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if root and hrp then
+            local frontPos = root.Position + root.CFrame.LookVector * 3
+            hrp.CFrame = CFrame.new(frontPos, root.Position)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+    end,
+})
+
 createSlider(content, {
     Name = "Speed",
     Range = { 100, 250 },
