@@ -88,6 +88,7 @@ local AutoPackageSHEnabled = false
 local SpecialPackageSHEnabled = false
 local AutoDrinkEnabled = false
 local AutoObsEnabled = false
+local GrabToolsEnabled = false
 local SHAutoResumeMode = false
 local SpecialSHAutoResumeMode = false
 local M1SpamActive = false
@@ -341,6 +342,37 @@ local function equipDrinks()
         if isDrinkTool(item) then
             pcall(function() item.Parent = char end)
         end
+    end
+end
+
+-- Grab Tools — direct port of Infinite Yield's `grabtools` command
+local GrabToolsConnection = nil
+
+local function grabToolFromWorkspace(child)
+    if not GrabToolsEnabled then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+    if not humanoid then return end
+    if child:IsA("BackpackItem") and child:FindFirstChild("Handle") then
+        pcall(function() humanoid:EquipTool(child) end)
+    end
+end
+
+local function startGrabTools()
+    if GrabToolsConnection then GrabToolsConnection:Disconnect() end
+    -- Initial sweep over everything currently in workspace
+    for _, child in ipairs(workspace:GetChildren()) do
+        grabToolFromWorkspace(child)
+    end
+    -- Listen for any new tools that drop in afterward
+    GrabToolsConnection = workspace.ChildAdded:Connect(grabToolFromWorkspace)
+end
+
+local function stopGrabTools()
+    if GrabToolsConnection then
+        GrabToolsConnection:Disconnect()
+        GrabToolsConnection = nil
     end
 end
 
@@ -1477,6 +1509,20 @@ createToggle(content, {
         AutoObsEnabled = value
         if value then
             task.spawn(runAutoObs)
+        end
+    end,
+})
+
+createToggle(content, {
+    Name = "Grab Tools",
+    CurrentValue = false,
+    Flag = "GrabToolsToggle",
+    Callback = function(value)
+        GrabToolsEnabled = value
+        if value then
+            startGrabTools()
+        else
+            stopGrabTools()
         end
     end,
 })
