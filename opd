@@ -411,6 +411,16 @@ local function applyWalkSpeed(char)
     end
 end
 
+-- Continuous enforcer: re-apply WalkSpeedValue every frame in case the game tries to reset it
+RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.WalkSpeed ~= WalkSpeedValue then
+        pcall(function() hum.WalkSpeed = WalkSpeedValue end)
+    end
+end)
+
 local function runAutoObs()
     while AutoObsEnabled and isCurrentSession() do
         pcall(function()
@@ -601,6 +611,7 @@ local function saveState()
     local state = {
         AutoPackageSH = AutoPackageSHEnabled,
         SpecialPackageSH = SpecialPackageSHEnabled,
+        AutoObs = AutoObsEnabled,
     }
     pcall(function()
         writefile(StateFile, HttpService:JSONEncode(state))
@@ -1115,6 +1126,7 @@ local function createWindow(title)
     gui.Name = "RafsoHub"
     gui.ResetOnSpawn = false
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.AutoLocalize = false  -- prevent Roblox from auto-translating labels (e.g., "Speed" -> "Velocidade")
     mountGui(gui)
 
     local main = Instance.new("Frame")
@@ -1542,6 +1554,7 @@ createToggle(content, {
     Flag = "AutoObsToggle",
     Callback = function(value)
         AutoObsEnabled = value
+        saveState()
         if value then
             task.spawn(runAutoObs)
         end
@@ -1751,6 +1764,20 @@ task.spawn(function()
                 if not ok then warn("[RafsoHub] runSpecialPackageSH error: " .. tostring(err)) end
             end)
             task.spawn(runM1Spam)
+        end
+    end
+
+    -- Auto-Obs runs independently of the S-H toggles, so restart it too if it was on
+    if state.AutoObs then
+        task.wait(0.5)
+        local toggle = Flags.AutoObsToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
+        if not AutoObsEnabled then
+            AutoObsEnabled = true
+            saveState()
+            task.spawn(runAutoObs)
         end
     end
 end)
