@@ -206,7 +206,9 @@ local function removePlatform(consumer)
     end
 end
 
-local function tweenTo(hrp, targetCFrame)
+local function tweenTo(hrp, targetCFrame, checkFn)
+    checkFn = checkFn or function() return AutoChestEnabled end
+
     local char = LocalPlayer.Character
     local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 
@@ -224,7 +226,7 @@ local function tweenTo(hrp, targetCFrame)
     local elapsed = 0
     local cancelled = false
     while elapsed < duration do
-        if not AutoChestEnabled then cancelled = true; break end
+        if not checkFn() then cancelled = true; break end
         local dt = RunService.Heartbeat:Wait()
         elapsed = elapsed + dt
         local alpha = math.min(elapsed / duration, 1)
@@ -573,8 +575,7 @@ local function runAutoPackage()
                         local _, hrp = getCharacter()
                         if hrp then
                             local frontPos = root.Position + root.CFrame.LookVector * 3
-                            hrp.CFrame = CFrame.new(frontPos, root.Position)
-                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
                         end
                         if not interruptibleWait(1.5, check) then break end
                     end
@@ -984,8 +985,7 @@ local function runSpecialPackageSH(isPostHop)
                         local hrp = char and char:FindFirstChild("HumanoidRootPart")
                         if hrp then
                             local frontPos = root.Position + root.CFrame.LookVector * 3
-                            hrp.CFrame = CFrame.new(frontPos, root.Position)
-                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
                         end
                         if not interruptibleWait(1.5, check) then break end
                     end
@@ -1055,8 +1055,7 @@ local function deliverPackageOnce()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     local frontPos = root.Position + root.CFrame.LookVector * 3
-                    hrp.CFrame = CFrame.new(frontPos, root.Position)
-                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
                 end
                 if not interruptibleWait(1.5, check) then break end
             end
@@ -1629,7 +1628,7 @@ createButton(content, {
 
 createSlider(content, {
     Name = "Speed",
-    Range = { 100, 250 },
+    Range = { 100, 1000 },
     Increment = 10,
     Suffix = " studs/s",
     CurrentValue = 200,
