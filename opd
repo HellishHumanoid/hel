@@ -577,7 +577,7 @@ local function runAutoPackage()
                             local frontPos = root.Position + root.CFrame.LookVector * 3
                             tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
                         end
-                        if not interruptibleWait(1.5, check) then break end
+                        if not interruptibleWait(0.2, check) then break end
                     end
                 end
                 if not anyNPC then break end
@@ -987,7 +987,7 @@ local function runSpecialPackageSH(isPostHop)
                             local frontPos = root.Position + root.CFrame.LookVector * 3
                             tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
                         end
-                        if not interruptibleWait(1.5, check) then break end
+                        if not interruptibleWait(0.2, check) then break end
                     end
                 end
                 if not anyNPC then break end
@@ -1057,7 +1057,7 @@ local function deliverPackageOnce()
                     local frontPos = root.Position + root.CFrame.LookVector * 3
                     tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
                 end
-                if not interruptibleWait(1.5, check) then break end
+                if not interruptibleWait(0.2, check) then break end
             end
         end
         if not anyNPC then break end
