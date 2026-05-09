@@ -1618,7 +1618,9 @@ local function createSlider(parent, opts)
     end)
 
     refresh()
-    if opts.Callback then pcall(opts.Callback, value) end
+    -- Intentionally NOT firing the callback here. Initial firing would call saveState
+    -- with toggle vars still at their defaults (false), wiping the on-disk state
+    -- before the auto-resume gets a chance to restore it.
 
     local api = {}
     function api:Set(v)
@@ -1948,14 +1950,16 @@ task.spawn(function()
     local state = loadSavedState()
     if not state then return end
 
-    -- Restore the slider values so Speed and Walkspeed persist across hops
+    -- Restore the underlying script vars without firing slider callbacks. Calling
+    -- :Set would fire the slider's callback which calls saveState — and at this
+    -- point the toggle vars are still their defaults (false), so saveState would
+    -- wipe the on-disk toggle state to false BEFORE we get to the elseif chain.
+    -- Instead we just write the variables and update the slider visuals manually.
     if type(state.TweenSpeed) == "number" then
         TweenSpeed = state.TweenSpeed
-        if Flags.SpeedSlider then pcall(function() Flags.SpeedSlider:Set(state.TweenSpeed) end) end
     end
     if type(state.WalkSpeed) == "number" then
         WalkSpeedValue = state.WalkSpeed
-        if Flags.WalkSpeedSlider then pcall(function() Flags.WalkSpeedSlider:Set(state.WalkSpeed) end) end
     end
 
     -- Order matters: more-specific combined modes go first so they take priority
@@ -2057,5 +2061,14 @@ task.spawn(function()
             saveState()
             task.spawn(runAutoObs)
         end
+    end
+
+    -- Now that the toggle vars are populated, sync the slider visuals. The callback
+    -- will fire saveState with all the correct values present.
+    if type(state.TweenSpeed) == "number" and Flags.SpeedSlider then
+        pcall(function() Flags.SpeedSlider:Set(state.TweenSpeed) end)
+    end
+    if type(state.WalkSpeed) == "number" and Flags.WalkSpeedSlider then
+        pcall(function() Flags.WalkSpeedSlider:Set(state.WalkSpeed) end)
     end
 end)
