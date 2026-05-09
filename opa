@@ -83,6 +83,7 @@ pcall(function()
 end)
 
 local AutoChestEnabled = false
+local AutoChestSHEnabled = false
 local AutoPackageEnabled = false
 local AutoPackageSHEnabled = false
 local SpecialPackageSHEnabled = false
@@ -92,6 +93,7 @@ local GrabToolsEnabled = false
 local FloatEnabled = false
 local SHAutoResumeMode = false
 local SpecialSHAutoResumeMode = false
+local ChestSHAutoResumeMode = false
 local M1SpamActive = false
 local TweenSpeed = 200
 local WalkSpeedValue = 16
@@ -162,7 +164,7 @@ local function disableNoclip()
 end
 
 local function updateNoclip()
-    if AutoChestEnabled or AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled then
+    if AutoChestEnabled or AutoChestSHEnabled or AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled then
         enableNoclip()
     else
         disableNoclip()
@@ -422,7 +424,7 @@ RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum and hum.WalkSpeed ~= WalkSpeedValue then
+    if hum then
         pcall(function() hum.WalkSpeed = WalkSpeedValue end)
     end
 end)
@@ -521,19 +523,19 @@ local function runAutoChest()
                 removePlatform("chest")
                 if not AutoChestEnabled then break end
 
-                task.wait(0.1)
+                task.wait(0.05)
                 if not AutoChestEnabled then break end
 
                 local clickDetector = pos1:FindFirstChildWhichIsA("ClickDetector")
                 if clickDetector then
                     local spamStart = tick()
-                    while tick() - spamStart < 0.1 do
+                    while tick() - spamStart < 0.05 do
                         if not AutoChestEnabled then break end
                         fireclickdetector(clickDetector)
                         RunService.Heartbeat:Wait()
                     end
                 else
-                    task.wait(0.1)
+                    task.wait(0.05)
                 end
                 if not AutoChestEnabled then break end
             end
@@ -618,6 +620,7 @@ local function saveState()
     local state = {
         AutoPackageSH = AutoPackageSHEnabled,
         SpecialPackageSH = SpecialPackageSHEnabled,
+        AutoChestSH = AutoChestSHEnabled,
         AutoObs = AutoObsEnabled,
         TweenSpeed = TweenSpeed,
         WalkSpeed = WalkSpeedValue,
@@ -1095,6 +1098,58 @@ local function runAutoPackageSH(isPostHop)
     end
 end
 
+local function runAutoChestSH(isPostHop)
+    if not AutoChestSHEnabled then return end
+    if not isCurrentSession() then return end
+
+    if isPostHop then
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        char:WaitForChild("HumanoidRootPart", 30)
+    end
+
+    while AutoChestSHEnabled and isCurrentSession() do
+        -- Snap to and click every chest currently in workspace.Chests
+        local chests = workspace:FindFirstChild("Chests")
+        if chests then
+            for _, chest in ipairs(chests:GetChildren()) do
+                if not (AutoChestSHEnabled and isCurrentSession()) then break end
+                local pos1 = chest:FindFirstChild("Pos1")
+                if pos1 and pos1:IsA("BasePart") then
+                    local _, hrp = getCharacter()
+                    local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, 3, 0))
+
+                    createPlatform("chestsh")
+                    hrp.CFrame = targetCFrame
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    removePlatform("chestsh")
+                    if not AutoChestSHEnabled then break end
+
+                    task.wait(0.05)
+                    if not AutoChestSHEnabled then break end
+
+                    local clickDetector = pos1:FindFirstChildWhichIsA("ClickDetector")
+                    if clickDetector then
+                        local spamStart = tick()
+                        while tick() - spamStart < 0.05 do
+                            if not AutoChestSHEnabled then break end
+                            fireclickdetector(clickDetector)
+                            RunService.Heartbeat:Wait()
+                        end
+                    else
+                        task.wait(0.05)
+                    end
+                end
+            end
+        end
+
+        if not (AutoChestSHEnabled and isCurrentSession()) then return end
+        -- Done with this server's chests (or none existed); hop to the next one
+        serverHop()
+        task.wait(2)
+    end
+end
+
 -- ==================== UI Library ====================
 
 -- Ocean theme palette
@@ -1483,6 +1538,28 @@ createToggle(content, {
 })
 
 createToggle(content, {
+    Name = "Auto-Chest S-H",
+    CurrentValue = false,
+    Flag = "AutoChestSHToggle",
+    Callback = function(value)
+        AutoChestSHEnabled = value
+        saveState()
+        updateNoclip()
+        if value then
+            createPlatform("chestsh")
+            local postHop = ChestSHAutoResumeMode
+            ChestSHAutoResumeMode = false
+            task.spawn(function()
+                local ok, err = pcall(runAutoChestSH, postHop)
+                if not ok then warn("[RafsoHub] runAutoChestSH error: " .. tostring(err)) end
+            end)
+        else
+            removePlatform("chestsh")
+        end
+    end,
+})
+
+createToggle(content, {
     Name = "Auto-Package",
     CurrentValue = false,
     Flag = "AutoPackageToggle",
@@ -1785,6 +1862,26 @@ task.spawn(function()
                 if not ok then warn("[RafsoHub] runSpecialPackageSH error: " .. tostring(err)) end
             end)
             task.spawn(runM1Spam)
+        end
+    elseif state.AutoChestSH then
+        task.wait(1)
+
+        ChestSHAutoResumeMode = true
+        local toggle = Flags.AutoChestSHToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
+
+        task.wait(0.5)
+        if not AutoChestSHEnabled then
+            AutoChestSHEnabled = true
+            saveState()
+            updateNoclip()
+            createPlatform("chestsh")
+            task.spawn(function()
+                local ok, err = pcall(runAutoChestSH, true)
+                if not ok then warn("[RafsoHub] runAutoChestSH error: " .. tostring(err)) end
+            end)
         end
     end
 
