@@ -587,7 +587,7 @@ local function runAutoPackage()
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.2, check) then break end
+                        if not interruptibleWait(0.3, check) then break end
                     end
                 end
                 if not anyNPC then break end
@@ -1002,7 +1002,7 @@ local function runSpecialPackageSH(isPostHop)
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.2, check) then break end
+                        if not interruptibleWait(0.3, check) then break end
                     end
                 end
                 if not anyNPC then break end
@@ -1073,7 +1073,7 @@ local function deliverPackageOnce()
                     hrp.CFrame = CFrame.new(frontPos, root.Position)
                     hrp.AssemblyLinearVelocity = Vector3.zero
                 end
-                if not interruptibleWait(0.2, check) then break end
+                if not interruptibleWait(0.3, check) then break end
             end
         end
         if not anyNPC then break end
@@ -1212,7 +1212,7 @@ local function runAutoChestPackageSH(isPostHop)
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.2, check) then break end
+                        if not interruptibleWait(0.3, check) then break end
                     end
                 end
                 if not anyNPC then break end
