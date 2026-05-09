@@ -1958,24 +1958,26 @@ task.spawn(function()
         if Flags.WalkSpeedSlider then pcall(function() Flags.WalkSpeedSlider:Set(state.WalkSpeed) end) end
     end
 
-    if state.AutoPackageSH then
+    -- Order matters: more-specific combined modes go first so they take priority
+    -- if multiple flags happen to be true (e.g., stale state from a crashed run).
+    if state.AutoChestPackageSH then
         task.wait(1)
 
-        SHAutoResumeMode = true
-        local toggle = Flags.AutoPackageSHToggle
+        ChestPackageSHAutoResumeMode = true
+        local toggle = Flags.AutoChestPackageSHToggle
         if toggle then
             pcall(function() toggle:Set(true) end)
         end
 
         task.wait(0.5)
-        if not AutoPackageSHEnabled then
-            AutoPackageSHEnabled = true
+        if not AutoChestPackageSHEnabled then
+            AutoChestPackageSHEnabled = true
             saveState()
             updateNoclip()
-            createPlatform("autopackagesh")
+            createPlatform("chestpackagesh")
             task.spawn(function()
-                local ok, err = pcall(runAutoPackageSH, true)
-                if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
+                local ok, err = pcall(runAutoChestPackageSH, true)
+                if not ok then warn("[RafsoHub] runAutoChestPackageSH error: " .. tostring(err)) end
             end)
             task.spawn(runM1Spam)
         end
@@ -2000,6 +2002,27 @@ task.spawn(function()
             end)
             task.spawn(runM1Spam)
         end
+    elseif state.AutoPackageSH then
+        task.wait(1)
+
+        SHAutoResumeMode = true
+        local toggle = Flags.AutoPackageSHToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
+
+        task.wait(0.5)
+        if not AutoPackageSHEnabled then
+            AutoPackageSHEnabled = true
+            saveState()
+            updateNoclip()
+            createPlatform("autopackagesh")
+            task.spawn(function()
+                local ok, err = pcall(runAutoPackageSH, true)
+                if not ok then warn("[RafsoHub] runAutoPackageSH error: " .. tostring(err)) end
+            end)
+            task.spawn(runM1Spam)
+        end
     elseif state.AutoChestSH then
         task.wait(1)
 
@@ -2019,27 +2042,6 @@ task.spawn(function()
                 local ok, err = pcall(runAutoChestSH, true)
                 if not ok then warn("[RafsoHub] runAutoChestSH error: " .. tostring(err)) end
             end)
-        end
-    elseif state.AutoChestPackageSH then
-        task.wait(1)
-
-        ChestPackageSHAutoResumeMode = true
-        local toggle = Flags.AutoChestPackageSHToggle
-        if toggle then
-            pcall(function() toggle:Set(true) end)
-        end
-
-        task.wait(0.5)
-        if not AutoChestPackageSHEnabled then
-            AutoChestPackageSHEnabled = true
-            saveState()
-            updateNoclip()
-            createPlatform("chestpackagesh")
-            task.spawn(function()
-                local ok, err = pcall(runAutoChestPackageSH, true)
-                if not ok then warn("[RafsoHub] runAutoChestPackageSH error: " .. tostring(err)) end
-            end)
-            task.spawn(runM1Spam)
         end
     end
 
