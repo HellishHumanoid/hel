@@ -506,9 +506,9 @@ local function runAutoChest()
             local pos1 = chest:FindFirstChild("Pos1")
             if pos1 and pos1:IsA("BasePart") then
                 local _, hrp = getCharacter()
-                local offset = pos1.CFrame.LookVector * 5
-                if offset.Magnitude < 0.1 then offset = Vector3.new(5, 0, 0) end
-                local targetCFrame = CFrame.new(pos1.Position + offset, pos1.Position)
+                -- Teleport directly on top of the chest's Pos1 marker (+3 studs Y so the
+                -- character stands on it instead of clipping into it).
+                local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, 3, 0))
 
                 createPlatform("chest")
                 hrp.CFrame = targetCFrame
