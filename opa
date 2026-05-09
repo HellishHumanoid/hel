@@ -87,6 +87,7 @@ local AutoChestSHEnabled = false
 local AutoPackageEnabled = false
 local AutoPackageSHEnabled = false
 local SpecialPackageSHEnabled = false
+local AutoChestPackageSHEnabled = false
 local AutoDrinkEnabled = false
 local AutoObsEnabled = false
 local GrabToolsEnabled = false
@@ -94,6 +95,7 @@ local FloatEnabled = false
 local SHAutoResumeMode = false
 local SpecialSHAutoResumeMode = false
 local ChestSHAutoResumeMode = false
+local ChestPackageSHAutoResumeMode = false
 local M1SpamActive = false
 local TweenSpeed = 200
 local WalkSpeedValue = 16
@@ -164,7 +166,7 @@ local function disableNoclip()
 end
 
 local function updateNoclip()
-    if AutoChestEnabled or AutoChestSHEnabled or AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled then
+    if AutoChestEnabled or AutoChestSHEnabled or AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled or AutoChestPackageSHEnabled then
         enableNoclip()
     else
         disableNoclip()
@@ -485,7 +487,7 @@ end
 local function runM1Spam()
     if M1SpamActive then return end
     M1SpamActive = true
-    while (AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled) and isCurrentSession() do
+    while (AutoPackageEnabled or AutoPackageSHEnabled or SpecialPackageSHEnabled or AutoChestPackageSHEnabled) and isCurrentSession() do
         local char = LocalPlayer.Character
         if char then
             for _, item in ipairs(char:GetChildren()) do
@@ -621,6 +623,7 @@ local function saveState()
         AutoPackageSH = AutoPackageSHEnabled,
         SpecialPackageSH = SpecialPackageSHEnabled,
         AutoChestSH = AutoChestSHEnabled,
+        AutoChestPackageSH = AutoChestPackageSHEnabled,
         AutoObs = AutoObsEnabled,
         TweenSpeed = TweenSpeed,
         WalkSpeed = WalkSpeedValue,
@@ -1150,6 +1153,117 @@ local function runAutoChestSH(isPostHop)
     end
 end
 
+local function runAutoChestPackageSH(isPostHop)
+    if not AutoChestPackageSHEnabled then return end
+    if not isCurrentSession() then return end
+    local check = function() return AutoChestPackageSHEnabled and isCurrentSession() end
+
+    if isPostHop then
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        char:WaitForChild("HumanoidRootPart", 30)
+    end
+
+    while check() do
+        -- Step 1: Request and deliver the package
+        fireRetumPackage()
+        local appearTimeout = tick() + 5
+        while check() and not hasPackage() and tick() < appearTimeout do
+            task.wait(0.2)
+        end
+
+        if check() and hasPackage() then
+            -- Wait for at least one NPC to exist
+            local npcDeadline = tick() + 20
+            while check() and tick() < npcDeadline do
+                local resolved = false
+                for _, entry in ipairs(PackageNPCs) do
+                    if resolveNPC(entry) then resolved = true; break end
+                end
+                if resolved then break end
+                task.wait(0.3)
+            end
+
+            -- Equip every package
+            local equipDeadline = tick() + 8
+            while check() and tick() < equipDeadline do
+                equipPackage()
+                if findEquippedPackage() and not findPackageInBackpack() then break end
+                task.wait(0.25)
+            end
+
+            -- Deliver
+            local deliveryDeadline = tick() + 180
+            local maxPasses = 12
+            local passes = 0
+            while check() and hasPackage() and passes < maxPasses and tick() < deliveryDeadline do
+                passes = passes + 1
+                local anyNPC = false
+                for _, entry in ipairs(PackageNPCs) do
+                    if not check() or not hasPackage() then break end
+                    if tick() >= deliveryDeadline then break end
+                    equipPackage()
+                    local root = resolveNPC(entry)
+                    if root then
+                        anyNPC = true
+                        local char = LocalPlayer.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            local frontPos = root.Position + root.CFrame.LookVector * 3
+                            hrp.CFrame = CFrame.new(frontPos, root.Position)
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                        end
+                        if not interruptibleWait(0.2, check) then break end
+                    end
+                end
+                if not anyNPC then break end
+            end
+        end
+
+        if not check() then return end
+
+        -- Step 2: Collect every chest in workspace.Chests
+        local chests = workspace:FindFirstChild("Chests")
+        if chests then
+            for _, chest in ipairs(chests:GetChildren()) do
+                if not check() then break end
+                local pos1 = chest:FindFirstChild("Pos1")
+                if pos1 and pos1:IsA("BasePart") then
+                    local _, hrp = getCharacter()
+                    local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, -1, 0))
+
+                    createPlatform("chestpackagesh")
+                    hrp.CFrame = targetCFrame
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    removePlatform("chestpackagesh")
+                    if not check() then break end
+
+                    task.wait(0.05)
+                    if not check() then break end
+
+                    local clickDetector = pos1:FindFirstChildWhichIsA("ClickDetector")
+                    if clickDetector then
+                        local spamStart = tick()
+                        while tick() - spamStart < 0.05 do
+                            if not check() then break end
+                            fireclickdetector(clickDetector)
+                            RunService.Heartbeat:Wait()
+                        end
+                    else
+                        task.wait(0.05)
+                    end
+                end
+            end
+        end
+
+        if not check() then return end
+
+        -- Step 3: Server hop
+        serverHop()
+        task.wait(2)
+    end
+end
+
 -- ==================== UI Library ====================
 
 -- Ocean theme palette
@@ -1560,6 +1674,29 @@ createToggle(content, {
 })
 
 createToggle(content, {
+    Name = "Auto-Chest+Package S-H",
+    CurrentValue = false,
+    Flag = "AutoChestPackageSHToggle",
+    Callback = function(value)
+        AutoChestPackageSHEnabled = value
+        saveState()
+        updateNoclip()
+        if value then
+            createPlatform("chestpackagesh")
+            local postHop = ChestPackageSHAutoResumeMode
+            ChestPackageSHAutoResumeMode = false
+            task.spawn(function()
+                local ok, err = pcall(runAutoChestPackageSH, postHop)
+                if not ok then warn("[RafsoHub] runAutoChestPackageSH error: " .. tostring(err)) end
+            end)
+            task.spawn(runM1Spam)
+        else
+            removePlatform("chestpackagesh")
+        end
+    end,
+})
+
+createToggle(content, {
     Name = "Auto-Package",
     CurrentValue = false,
     Flag = "AutoPackageToggle",
@@ -1718,7 +1855,7 @@ createSlider(content, {
     Range = { 100, 1000 },
     Increment = 10,
     Suffix = " studs/s",
-    CurrentValue = 200,
+    CurrentValue = 200,AC
     Flag = "SpeedSlider",
     Callback = function(value)
         TweenSpeed = value
@@ -1882,6 +2019,27 @@ task.spawn(function()
                 local ok, err = pcall(runAutoChestSH, true)
                 if not ok then warn("[RafsoHub] runAutoChestSH error: " .. tostring(err)) end
             end)
+        end
+    elseif state.AutoChestPackageSH then
+        task.wait(1)
+
+        ChestPackageSHAutoResumeMode = true
+        local toggle = Flags.AutoChestPackageSHToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
+
+        task.wait(0.5)
+        if not AutoChestPackageSHEnabled then
+            AutoChestPackageSHEnabled = true
+            saveState()
+            updateNoclip()
+            createPlatform("chestpackagesh")
+            task.spawn(function()
+                local ok, err = pcall(runAutoChestPackageSH, true)
+                if not ok then warn("[RafsoHub] runAutoChestPackageSH error: " .. tostring(err)) end
+            end)
+            task.spawn(runM1Spam)
         end
     end
 
