@@ -514,7 +514,7 @@ local function runAutoChest()
                 local _, hrp = getCharacter()
                 -- Teleport directly on top of the chest's Pos1 marker (+3 studs Y so the
                 -- character stands on it instead of clipping into it).
-                local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, 3, 0))
+                local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, -1, 0))
 
                 createPlatform("chest")
                 hrp.CFrame = targetCFrame
@@ -1116,7 +1116,7 @@ local function runAutoChestSH(isPostHop)
                 local pos1 = chest:FindFirstChild("Pos1")
                 if pos1 and pos1:IsA("BasePart") then
                     local _, hrp = getCharacter()
-                    local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, 3, 0))
+                    local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, -1, 0))
 
                     createPlatform("chestsh")
                     hrp.CFrame = targetCFrame
