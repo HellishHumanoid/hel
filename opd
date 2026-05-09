@@ -511,10 +511,11 @@ local function runAutoChest()
                 local targetCFrame = CFrame.new(pos1.Position + offset, pos1.Position)
 
                 createPlatform("chest")
-                local completed = tweenTo(hrp, targetCFrame)
+                hrp.CFrame = targetCFrame
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
                 removePlatform("chest")
                 if not AutoChestEnabled then break end
-                if not completed then break end
 
                 task.wait(0.1)
                 if not AutoChestEnabled then break end
@@ -575,7 +576,8 @@ local function runAutoPackage()
                         local _, hrp = getCharacter()
                         if hrp then
                             local frontPos = root.Position + root.CFrame.LookVector * 3
-                            tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
+                            hrp.CFrame = CFrame.new(frontPos, root.Position)
+                            hrp.AssemblyLinearVelocity = Vector3.zero
                         end
                         if not interruptibleWait(0.2, check) then break end
                     end
@@ -613,6 +615,8 @@ local function saveState()
         AutoPackageSH = AutoPackageSHEnabled,
         SpecialPackageSH = SpecialPackageSHEnabled,
         AutoObs = AutoObsEnabled,
+        TweenSpeed = TweenSpeed,
+        WalkSpeed = WalkSpeedValue,
     }
     pcall(function()
         writefile(StateFile, HttpService:JSONEncode(state))
@@ -985,7 +989,8 @@ local function runSpecialPackageSH(isPostHop)
                         local hrp = char and char:FindFirstChild("HumanoidRootPart")
                         if hrp then
                             local frontPos = root.Position + root.CFrame.LookVector * 3
-                            tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
+                            hrp.CFrame = CFrame.new(frontPos, root.Position)
+                            hrp.AssemblyLinearVelocity = Vector3.zero
                         end
                         if not interruptibleWait(0.2, check) then break end
                     end
@@ -1055,7 +1060,8 @@ local function deliverPackageOnce()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
                     local frontPos = root.Position + root.CFrame.LookVector * 3
-                    tweenTo(hrp, CFrame.new(frontPos, root.Position), check)
+                    hrp.CFrame = CFrame.new(frontPos, root.Position)
+                    hrp.AssemblyLinearVelocity = Vector3.zero
                 end
                 if not interruptibleWait(0.2, check) then break end
             end
@@ -1635,6 +1641,7 @@ createSlider(content, {
     Flag = "SpeedSlider",
     Callback = function(value)
         TweenSpeed = value
+        saveState()
     end,
 })
 
@@ -1648,6 +1655,7 @@ createSlider(content, {
     Callback = function(value)
         WalkSpeedValue = value
         applyWalkSpeed(LocalPlayer.Character)
+        saveState()
     end,
 })
 
@@ -1721,6 +1729,16 @@ task.spawn(function()
 
     local state = loadSavedState()
     if not state then return end
+
+    -- Restore the slider values so Speed and Walkspeed persist across hops
+    if type(state.TweenSpeed) == "number" then
+        TweenSpeed = state.TweenSpeed
+        if Flags.SpeedSlider then pcall(function() Flags.SpeedSlider:Set(state.TweenSpeed) end) end
+    end
+    if type(state.WalkSpeed) == "number" then
+        WalkSpeedValue = state.WalkSpeed
+        if Flags.WalkSpeedSlider then pcall(function() Flags.WalkSpeedSlider:Set(state.WalkSpeed) end) end
+    end
 
     if state.AutoPackageSH then
         task.wait(1)
