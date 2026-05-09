@@ -101,7 +101,7 @@ local NoclipConnection = nil
 local Platform = nil
 
 -- Raw URL of this script used by queue_on_teleport to auto-resume after a server hop.
-local SCRIPT_URL = "https://raw.githubusercontent.com/HellishHumanoid/hel/refs/heads/main/opd"
+local SCRIPT_URL = "https://raw.githubusercontent.com/HellishHumanoid/hel/refs/heads/main/opa"
 local StateFile = "RafsoHub_state.json"
 
 -- NPC paths to deliver the package to.
