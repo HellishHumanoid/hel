@@ -1855,7 +1855,7 @@ createSlider(content, {
     Range = { 100, 1000 },
     Increment = 10,
     Suffix = " studs/s",
-    CurrentValue = 200,AC
+    CurrentValue = 200,
     Flag = "SpeedSlider",
     Callback = function(value)
         TweenSpeed = value
