@@ -91,6 +91,7 @@ local AutoChestPackageSHEnabled = false
 local AutoDrinkEnabled = false
 local AutoObsEnabled = false
 local GrabToolsEnabled = false
+local AutoSellFruitsEnabled = false
 local FloatEnabled = false
 local SHAutoResumeMode = false
 local SpecialSHAutoResumeMode = false
@@ -389,6 +390,42 @@ local function stopGrabTools()
     end
 end
 
+-- Auto-Sell Fruits: fires the SellFruit remote with each known sellable fruit name
+-- the moment one of them appears in the inventory.
+local SellFruitNames = {
+    ["Swim Fruit"]    = true,
+    ["Slip Fruit"]    = true,
+    ["Chop Fruit"]    = true,
+    ["Hot Fruit"]     = true,
+    ["Float Fruit"]   = true,
+    ["Spring Fruit"]  = true,
+    ["Bomb Fruit"]    = true,
+    ["Smelt Fruit"]   = true,
+    ["Diamond Fruit"] = true,
+}
+
+local function runAutoSellFruits()
+    while AutoSellFruitsEnabled and isCurrentSession() do
+        local sold = false
+        local function trySell(container)
+            if not container then return end
+            for _, item in ipairs(container:GetChildren()) do
+                if not AutoSellFruitsEnabled then return end
+                if item:IsA("Tool") and SellFruitNames[item.Name] then
+                    pcall(function()
+                        local remote = game:GetService("ReplicatedStorage"):WaitForChild("SellFruit", 5)
+                        if remote then remote:FireServer(item.Name, "Beri") end
+                    end)
+                    sold = true
+                end
+            end
+        end
+        trySell(LocalPlayer:FindFirstChild("Backpack"))
+        trySell(LocalPlayer.Character)
+        task.wait(sold and 0.3 or 1)
+    end
+end
+
 -- Float: anti-gravity via BodyVelocity, lets the character hover/fly without falling
 local function attachFloat(char)
     if not FloatEnabled or not char then return end
@@ -630,6 +667,8 @@ local function saveState()
         AutoChestSH = AutoChestSHEnabled,
         AutoChestPackageSH = AutoChestPackageSHEnabled,
         AutoObs = AutoObsEnabled,
+        GrabTools = GrabToolsEnabled,
+        AutoSellFruits = AutoSellFruitsEnabled,
         TweenSpeed = TweenSpeed,
         WalkSpeed = WalkSpeedValue,
     }
@@ -1807,10 +1846,24 @@ createToggle(content, {
     Flag = "GrabToolsToggle",
     Callback = function(value)
         GrabToolsEnabled = value
+        saveState()
         if value then
             startGrabTools()
         else
             stopGrabTools()
+        end
+    end,
+})
+
+createToggle(content, {
+    Name = "Auto-Sell Fruits",
+    CurrentValue = false,
+    Flag = "AutoSellFruitsToggle",
+    Callback = function(value)
+        AutoSellFruitsEnabled = value
+        saveState()
+        if value then
+            task.spawn(runAutoSellFruits)
         end
     end,
 })
@@ -2075,6 +2128,32 @@ task.spawn(function()
             AutoObsEnabled = true
             saveState()
             task.spawn(runAutoObs)
+        end
+    end
+
+    -- Grab Tools also runs independently
+    if state.GrabTools then
+        local toggle = Flags.GrabToolsToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
+        if not GrabToolsEnabled then
+            GrabToolsEnabled = true
+            saveState()
+            startGrabTools()
+        end
+    end
+
+    -- Auto-Sell Fruits runs independently
+    if state.AutoSellFruits then
+        local toggle = Flags.AutoSellFruitsToggle
+        if toggle then
+            pcall(function() toggle:Set(true) end)
+        end
+        if not AutoSellFruitsEnabled then
+            AutoSellFruitsEnabled = true
+            saveState()
+            task.spawn(runAutoSellFruits)
         end
     end
 
