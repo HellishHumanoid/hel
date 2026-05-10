@@ -2167,6 +2167,16 @@ LocalPlayer.CharacterAdded:Connect(function(char)
         end
     end
     applyWalkSpeed(char)
+
+    -- Grab Tools: re-sweep workspace tools now that the character is ready.
+    -- The startGrabTools sweep at script load may have run before the humanoid
+    -- existed (no-op), and the ChildAdded listener only catches NEW tools.
+    if GrabToolsEnabled then
+        char:WaitForChild("Humanoid", 5)
+        for _, child in ipairs(workspace:GetChildren()) do
+            grabToolFromWorkspace(child)
+        end
+    end
 end)
 
 -- ==================== Auto-Resume After Server Hop ====================
