@@ -131,6 +131,7 @@ local PackageNPCs = {
     "workspace.Merchants.Progression5Merchant",
     "workspace.Merchants.ProgressionMerchant",
     "workspace.Merchants.QuestFishMerchant",
+    "workspace.Merchants.QuestHakiMerchant",
     "workspace.Merchants.QuestMerchant",
     "workspace.Merchants.QuestMerchant2",
     "workspace.Merchants.SniperMerchant",
@@ -570,6 +571,7 @@ local function runAutoPackage()
 
         if hasPackage() then
             equipPackage()
+            local npcDelay = 0.3
             while AutoPackageEnabled and hasPackage() do
                 local anyNPC = false
                 for _, entry in ipairs(PackageNPCs) do
@@ -587,10 +589,13 @@ local function runAutoPackage()
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.3, check) then break end
+                        if not interruptibleWait(npcDelay, check) then break end
                     end
                 end
                 if not anyNPC then break end
+                -- Made it through every NPC and still have a package? Bump delay to give
+                -- the server more time to register hits next pass.
+                if hasPackage() then npcDelay = npcDelay + 0.1 end
             end
         end
 
@@ -982,6 +987,7 @@ local function runSpecialPackageSH(isPostHop)
             local deliveryDeadline = tick() + 180
             local maxPasses = 12
             local passes = 0
+            local npcDelay = 0.3
             while SpecialPackageSHEnabled and hasSpecialPackage() and passes < maxPasses and tick() < deliveryDeadline do
                 passes = passes + 1
                 local anyNPC = false
@@ -1002,10 +1008,12 @@ local function runSpecialPackageSH(isPostHop)
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.3, check) then break end
+                        if not interruptibleWait(npcDelay, check) then break end
                     end
                 end
                 if not anyNPC then break end
+                -- If the special package survived a full pass, give it more time next round
+                if hasSpecialPackage() then npcDelay = npcDelay + 0.1 end
             end
 
             if not SpecialPackageSHEnabled then return end
@@ -1053,6 +1061,7 @@ local function deliverPackageOnce()
     -- Deliver: iterate NPCs, capped to a few passes so we can never infinite-loop
     local maxPasses = 12
     local passes = 0
+    local npcDelay = 0.3
     while AutoPackageSHEnabled and hasPackage() and passes < maxPasses and tick() < deliveryDeadline do
         passes = passes + 1
         local anyNPC = false
@@ -1073,10 +1082,13 @@ local function deliverPackageOnce()
                     hrp.CFrame = CFrame.new(frontPos, root.Position)
                     hrp.AssemblyLinearVelocity = Vector3.zero
                 end
-                if not interruptibleWait(0.3, check) then break end
+                if not interruptibleWait(npcDelay, check) then break end
             end
         end
         if not anyNPC then break end
+        -- Made it through every NPC and a package is still in inventory? Bump the
+        -- delay by 0.1s so the server has more time to register the touch next round.
+        if hasPackage() then npcDelay = npcDelay + 0.1 end
     end
 end
 
@@ -1195,6 +1207,7 @@ local function runAutoChestPackageSH(isPostHop)
             local deliveryDeadline = tick() + 180
             local maxPasses = 12
             local passes = 0
+            local npcDelay = 0.3
             while check() and hasPackage() and passes < maxPasses and tick() < deliveryDeadline do
                 passes = passes + 1
                 local anyNPC = false
@@ -1212,10 +1225,12 @@ local function runAutoChestPackageSH(isPostHop)
                             hrp.CFrame = CFrame.new(frontPos, root.Position)
                             hrp.AssemblyLinearVelocity = Vector3.zero
                         end
-                        if not interruptibleWait(0.3, check) then break end
+                        if not interruptibleWait(npcDelay, check) then break end
                     end
                 end
                 if not anyNPC then break end
+                -- Survived a full pass with packages still in inventory? Slow down a bit.
+                if hasPackage() then npcDelay = npcDelay + 0.1 end
             end
         end
 
