@@ -378,6 +378,7 @@ local GrabToolsConnection = nil
 
 local function grabToolFromWorkspace(child)
     if not GrabToolsEnabled then return end
+    if not isCurrentSession() then return end
     local char = LocalPlayer.Character
     if not char then return end
     local humanoid = char:FindFirstChildWhichIsA("Humanoid")
@@ -2207,9 +2208,20 @@ task.spawn(function()
         end
     end
 
+    -- Wait briefly to make sure the UI and Flags table are fully populated before
+    -- trying to flip the standalone toggles (this branch may run with no S-H wait
+    -- above it, so the UI might not have rendered yet).
+    task.wait(0.5)
+
     -- Grab Tools also runs independently
     if state.GrabTools then
-        local toggle = Flags.GrabToolsToggle
+        -- Retry if Flags isn't ready yet
+        local toggle
+        for _ = 1, 10 do
+            toggle = Flags.GrabToolsToggle
+            if toggle then break end
+            task.wait(0.2)
+        end
         if toggle then
             pcall(function() toggle:Set(true) end)
         end
@@ -2222,7 +2234,12 @@ task.spawn(function()
 
     -- Auto-Sell Fruits runs independently
     if state.AutoSellFruits then
-        local toggle = Flags.AutoSellFruitsToggle
+        local toggle
+        for _ = 1, 10 do
+            toggle = Flags.AutoSellFruitsToggle
+            if toggle then break end
+            task.wait(0.2)
+        end
         if toggle then
             pcall(function() toggle:Set(true) end)
         end
