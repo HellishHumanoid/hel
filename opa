@@ -1179,9 +1179,7 @@ local function runSpecialPackageSH(isPostHop)
                 -- If the special package survived a full pass, give it more time next round
                 if hasSpecialPackage() then npcDelay = npcDelay + 0.1 end
             end
-            if resetTriggered then
-                resetCharacterAndWait()
-            end
+            -- 60s timeout: skip the character reset and hop straight to the next server
 
             if not SpecialPackageSHEnabled then return end
             serverHop()
@@ -1264,9 +1262,7 @@ local function deliverPackageOnce()
         -- delay by 0.1s so the server has more time to register the touch next round.
         if hasPackage() then npcDelay = npcDelay + 0.1 end
     end
-    if resetTriggered then
-        resetCharacterAndWait()
-    end
+    -- 60s timeout: just bail; the caller (runAutoPackageSH) will hop servers next.
 end
 
 local function runAutoPackageSH(isPostHop)
@@ -1353,6 +1349,8 @@ local function runAutoChestPackageSH(isPostHop)
     end
 
     while check() do
+        local skipChestsAndHop = false  -- set to true if delivery hits 60s timeout
+
         -- Step 1: Request and deliver the package
         fireRetumPackage()
         local appearTimeout = tick() + 5
@@ -1416,43 +1414,44 @@ local function runAutoChestPackageSH(isPostHop)
                 -- Survived a full pass with packages still in inventory? Slow down a bit.
                 if hasPackage() then npcDelay = npcDelay + 0.1 end
             end
-            if resetTriggered then
-                resetCharacterAndWait()
-            end
+            -- 60s delivery timeout: skip chest collection on this server and hop fresh.
+            if resetTriggered then skipChestsAndHop = true end
         end
 
         if not check() then return end
 
-        -- Step 2: Collect every chest in workspace.Chests
-        local chests = workspace:FindFirstChild("Chests")
-        if chests then
-            for _, chest in ipairs(chests:GetChildren()) do
-                if not check() then break end
-                local pos1 = chest:FindFirstChild("Pos1")
-                if pos1 and pos1:IsA("BasePart") then
-                    local _, hrp = getCharacter()
-                    local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, -1, 0))
-
-                    createPlatform("chestpackagesh")
-                    hrp.CFrame = targetCFrame
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                    removePlatform("chestpackagesh")
+        -- Step 2: Collect every chest in workspace.Chests (unless we timed out delivery)
+        if not skipChestsAndHop then
+            local chests = workspace:FindFirstChild("Chests")
+            if chests then
+                for _, chest in ipairs(chests:GetChildren()) do
                     if not check() then break end
+                    local pos1 = chest:FindFirstChild("Pos1")
+                    if pos1 and pos1:IsA("BasePart") then
+                        local _, hrp = getCharacter()
+                        local targetCFrame = CFrame.new(pos1.Position + Vector3.new(0, -1, 0))
 
-                    task.wait(0.05)
-                    if not check() then break end
+                        createPlatform("chestpackagesh")
+                        hrp.CFrame = targetCFrame
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                        removePlatform("chestpackagesh")
+                        if not check() then break end
 
-                    local clickDetector = pos1:FindFirstChildWhichIsA("ClickDetector")
-                    if clickDetector then
-                        local spamStart = tick()
-                        while tick() - spamStart < 0.05 do
-                            if not check() then break end
-                            fireclickdetector(clickDetector)
-                            RunService.Heartbeat:Wait()
-                        end
-                    else
                         task.wait(0.05)
+                        if not check() then break end
+
+                        local clickDetector = pos1:FindFirstChildWhichIsA("ClickDetector")
+                        if clickDetector then
+                            local spamStart = tick()
+                            while tick() - spamStart < 0.05 do
+                                if not check() then break end
+                                fireclickdetector(clickDetector)
+                                RunService.Heartbeat:Wait()
+                            end
+                        else
+                            task.wait(0.05)
+                        end
                     end
                 end
             end
