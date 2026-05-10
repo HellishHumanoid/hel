@@ -418,6 +418,7 @@ local SellFruitNames = {
     ["Smelt Fruit"]   = true,
     ["Diamond Fruit"] = true,
     ["Luck Fruit"]    = true,
+    ["Spin Fruit"]    = true,
 }
 
 local function runAutoSellFruits()
@@ -527,6 +528,36 @@ local function fireRetumPackage()
     retum:FireServer("Package")
 end
 
+-- Watchdog helper: kill the current character and wait for a fresh one to spawn.
+-- Used when delivery has been stuck for too long (likely the player got soft-locked).
+local function resetCharacterAndWait()
+    local diedChar = LocalPlayer.Character
+    pcall(function()
+        if diedChar then
+            local hum = diedChar:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.Health = 0
+            else
+                diedChar:BreakJoints()
+            end
+        end
+    end)
+    -- Wait up to 12s for a brand new character with a live humanoid
+    local deadline = tick() + 12
+    while tick() < deadline do
+        local newChar = LocalPlayer.Character
+        if newChar and newChar ~= diedChar then
+            local newHum = newChar:FindFirstChildOfClass("Humanoid")
+            local newHrp = newChar:FindFirstChild("HumanoidRootPart")
+            if newHum and newHrp and newHum.Health > 0 then
+                return true
+            end
+        end
+        task.wait(0.2)
+    end
+    return false
+end
+
 local function interruptibleWait(seconds, checkFn)
     local start = tick()
     while tick() - start < seconds do
@@ -625,10 +656,16 @@ local function runAutoPackage()
         if hasPackage() then
             equipPackage()
             local npcDelay = 0.3
+            local deliveryStart = tick()
+            local resetTriggered = false
             while AutoPackageEnabled and hasPackage() do
                 local anyNPC = false
                 for _, entry in ipairs(PackageNPCs) do
                     if not AutoPackageEnabled or not hasPackage() then break end
+                    if tick() - deliveryStart >= 60 then
+                        resetTriggered = true
+                        break
+                    end
 
                     -- Sweep any newly-arrived packages from Backpack into the Character
                     equipPackage()
@@ -645,10 +682,15 @@ local function runAutoPackage()
                         if not interruptibleWait(npcDelay, check) then break end
                     end
                 end
+                if resetTriggered then break end
                 if not anyNPC then break end
                 -- Made it through every NPC and still have a package? Bump delay to give
                 -- the server more time to register hits next pass.
                 if hasPackage() then npcDelay = npcDelay + 0.1 end
+            end
+            -- Watchdog: if 60s passed without delivering, reset the character to unstick
+            if resetTriggered then
+                resetCharacterAndWait()
             end
         end
 
@@ -758,23 +800,28 @@ local function queueReexec()
 
     pcall(function()
         queueFn(string.format([[
+local function log(msg) warn("[RafsoHub queue] " .. tostring(msg)) end
+
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(1)
 getgenv().RafsoPostHop = true
 getgenv().RafsoHubHopInProgress = nil
 
 local src
-for i = 1, 5 do
+for i = 1, 8 do
     local ok, body = pcall(function() return game:HttpGet('%s?cb=' .. tostring(tick()) .. '_' .. tostring(i)) end)
     if ok and body and #body > 200 then
         src = body
         if writefile then pcall(writefile, "RafsoHub_cached.lua", body) end
         break
+    else
+        log("http fetch attempt " .. i .. " failed; ok=" .. tostring(ok) .. " len=" .. tostring(body and #body or 0))
     end
-    task.wait(2)
+    task.wait(1.5)
 end
 
 if (not src) and isfile and readfile then
+    log("falling back to disk cache")
     local ok, exists = pcall(isfile, "RafsoHub_cached.lua")
     if ok and exists then
         local ok2, body = pcall(readfile, "RafsoHub_cached.lua")
@@ -782,10 +829,18 @@ if (not src) and isfile and readfile then
     end
 end
 
-if src then
-    local fn = loadstring(src)
-    if fn then fn() end
+if not src then
+    log("NO source available — script will not run on this server")
+    return
 end
+
+local fn, err = loadstring(src)
+if not fn then
+    log("loadstring failed: " .. tostring(err))
+    return
+end
+local ok, err2 = pcall(fn)
+if not ok then log("script execution errored: " .. tostring(err2)) end
 ]], SCRIPT_URL))
     end)
 end
@@ -1090,12 +1145,18 @@ local function runSpecialPackageSH(isPostHop)
             local maxPasses = 12
             local passes = 0
             local npcDelay = 0.3
+            local deliveryStart = tick()
+            local resetTriggered = false
             while SpecialPackageSHEnabled and hasSpecialPackage() and passes < maxPasses and tick() < deliveryDeadline do
                 passes = passes + 1
                 local anyNPC = false
                 for _, entry in ipairs(PackageNPCs) do
                     if not SpecialPackageSHEnabled or not hasSpecialPackage() then break end
                     if tick() >= deliveryDeadline then break end
+                    if tick() - deliveryStart >= 60 then
+                        resetTriggered = true
+                        break
+                    end
 
                     -- Sweep any newly-arrived packages from Backpack into the Character
                     equipPackage()
@@ -1113,9 +1174,13 @@ local function runSpecialPackageSH(isPostHop)
                         if not interruptibleWait(npcDelay, check) then break end
                     end
                 end
+                if resetTriggered then break end
                 if not anyNPC then break end
                 -- If the special package survived a full pass, give it more time next round
                 if hasSpecialPackage() then npcDelay = npcDelay + 0.1 end
+            end
+            if resetTriggered then
+                resetCharacterAndWait()
             end
 
             if not SpecialPackageSHEnabled then return end
@@ -1164,12 +1229,18 @@ local function deliverPackageOnce()
     local maxPasses = 12
     local passes = 0
     local npcDelay = 0.3
+    local deliveryStart = tick()
+    local resetTriggered = false
     while AutoPackageSHEnabled and hasPackage() and passes < maxPasses and tick() < deliveryDeadline do
         passes = passes + 1
         local anyNPC = false
         for _, entry in ipairs(PackageNPCs) do
             if not AutoPackageSHEnabled or not hasPackage() then break end
             if tick() >= deliveryDeadline then break end
+            if tick() - deliveryStart >= 60 then
+                resetTriggered = true
+                break
+            end
 
             -- Sweep any new packages from Backpack into the Character before each NPC
             equipPackage()
@@ -1187,10 +1258,14 @@ local function deliverPackageOnce()
                 if not interruptibleWait(npcDelay, check) then break end
             end
         end
+        if resetTriggered then break end
         if not anyNPC then break end
         -- Made it through every NPC and a package is still in inventory? Bump the
         -- delay by 0.1s so the server has more time to register the touch next round.
         if hasPackage() then npcDelay = npcDelay + 0.1 end
+    end
+    if resetTriggered then
+        resetCharacterAndWait()
     end
 end
 
@@ -1310,12 +1385,18 @@ local function runAutoChestPackageSH(isPostHop)
             local maxPasses = 12
             local passes = 0
             local npcDelay = 0.3
+            local deliveryStart = tick()
+            local resetTriggered = false
             while check() and hasPackage() and passes < maxPasses and tick() < deliveryDeadline do
                 passes = passes + 1
                 local anyNPC = false
                 for _, entry in ipairs(PackageNPCs) do
                     if not check() or not hasPackage() then break end
                     if tick() >= deliveryDeadline then break end
+                    if tick() - deliveryStart >= 60 then
+                        resetTriggered = true
+                        break
+                    end
                     equipPackage()
                     local root = resolveNPC(entry)
                     if root then
@@ -1330,9 +1411,13 @@ local function runAutoChestPackageSH(isPostHop)
                         if not interruptibleWait(npcDelay, check) then break end
                     end
                 end
+                if resetTriggered then break end
                 if not anyNPC then break end
                 -- Survived a full pass with packages still in inventory? Slow down a bit.
                 if hasPackage() then npcDelay = npcDelay + 0.1 end
+            end
+            if resetTriggered then
+                resetCharacterAndWait()
             end
         end
 
