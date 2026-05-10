@@ -30,6 +30,20 @@ local function isCurrentSession()
     return getgenv().RafsoHubCurrentSession == SESSION_ID
 end
 
+-- Clean up any leftover Float BodyVelocity from a previous instance so the user
+-- doesn't keep floating after toggling Float off and reloading.
+pcall(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local char = plr and plr.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local bv = hrp:FindFirstChild("RafsoFloat")
+            if bv then bv:Destroy() end
+        end
+    end
+end)
+
 -- Destroy any previous Rafso Hub GUI so we don't stack two on top of each other.
 -- We deliberately do NOT call :Set(false) on old toggles here: that would fire the
 -- old callback (which clobbers the state file with "off") and turn off the very
@@ -402,6 +416,7 @@ local SellFruitNames = {
     ["Bomb Fruit"]    = true,
     ["Smelt Fruit"]   = true,
     ["Diamond Fruit"] = true,
+    ["Luck Fruit"]    = true,
 }
 
 local function runAutoSellFruits()
@@ -802,9 +817,56 @@ local function setHopInProgress(value)
     end
 end
 
+-- True if the inventory contains any "Fruit" tool that ISN'T in the sellable list.
+-- Those are the fruits we want to keep, and finding one means we should stop hopping.
+local function hasKeeperFruit()
+    local function check(container)
+        if not container then return false end
+        for _, item in ipairs(container:GetChildren()) do
+            if item:IsA("Tool")
+                and string.find(item.Name, "Fruit")
+                and not SellFruitNames[item.Name]
+            then
+                return true
+            end
+        end
+        return false
+    end
+    return check(LocalPlayer:FindFirstChild("Backpack")) or check(LocalPlayer.Character)
+end
+
+-- Turn off all S-H toggles and park the character at the safe zone.
+local function stopAllSHAndPark()
+    local flags = (typeof(getgenv) == "function") and getgenv().RafsoHubFlagsApi
+    local function turnOff(flagName)
+        local toggle = flags and flags[flagName]
+        if toggle then pcall(function() toggle:Set(false) end) end
+    end
+    turnOff("AutoPackageSHToggle")
+    turnOff("SpecialPackageSHToggle")
+    turnOff("AutoChestSHToggle")
+    turnOff("AutoChestPackageSHToggle")
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = CFrame.new(1000, 1000, 1000)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        pcall(function() hrp.Anchored = true end)
+    end
+end
+
 -- Simple hop used by Auto-Package S-H: just pick a random untried public server, retry on failure
 local function serverHop()
     if isHopInProgress() or not isCurrentSession() then return end
+
+    -- Don't hop if the player has a "keeper" fruit — the script's job is done; stop and park.
+    if hasKeeperFruit() then
+        stopAllSHAndPark()
+        return
+    end
+
     setHopInProgress(true)
 
     local placeId = game.PlaceId
@@ -2001,10 +2063,24 @@ if LocalPlayer.Character then
     task.spawn(hookCharacter, LocalPlayer.Character)
 end
 
--- Re-apply Float / WalkSpeed each time the character respawns so they persist
+-- Re-apply Float / WalkSpeed each time the character respawns so they persist.
+-- The isCurrentSession check prevents stale handlers from old script instances
+-- from re-attaching the Float BodyVelocity after the user toggled it off.
 LocalPlayer.CharacterAdded:Connect(function(char)
+    if not isCurrentSession() then return end
     task.wait(0.3)
-    if FloatEnabled then attachFloat(char) end
+    if not isCurrentSession() then return end
+    if FloatEnabled then
+        attachFloat(char)
+    else
+        -- Defensive cleanup: nuke any leftover RafsoFloat BV that might have been
+        -- attached by a stale connection from a prior instance.
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local bv = hrp:FindFirstChild("RafsoFloat")
+            if bv then bv:Destroy() end
+        end
+    end
     applyWalkSpeed(char)
 end)
 
